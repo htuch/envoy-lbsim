@@ -96,10 +96,9 @@ test('clicking an envoy cell populates the Inspector tab', async ({ page }) => {
   // Pause first so the inspection is at a stable virtual time.
   await accumulateAndPause(page);
 
-  // Envoy cells are buttons inside the tier row with data-tier="envoys".
-  const envoyCell = page.locator('[data-tier="envoys"] button').first();
-  await expect(envoyCell).toBeVisible();
-  await envoyCell.click();
+  // e0 is selected by default; clicking it would deselect. Click e1 instead to
+  // ensure a selection is committed and the inspector heading appears.
+  await page.getByRole('button', { name: 'e1', exact: true }).click();
 
   // The Inspector tab becomes active and shows the LB inspector heading.
   await expect(page.getByRole('heading', { level: 2, name: /LB inspector/ })).toBeVisible();
