@@ -1,7 +1,7 @@
 import { defaultSimConfig, type SimConfig } from '@elbsim/config';
 import { GaugeRingBuffer, type SharedTelemetry } from '@elbsim/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_CAPACITY, MockSimRunner, runCapacity } from './runner';
+import { MAX_CAPACITY, MOCK_SAMPLE_CAP, MockSimRunner, runCapacity } from './runner';
 
 /** A short run so frame counts are small and exhaustible in a test. */
 function shortConfig(): SimConfig {
@@ -160,12 +160,12 @@ describe('MockSimRunner', () => {
   });
 
   describe('queryWindowLatencies', () => {
-    it('returns ascending latencies with length <= 4000 and a boolean capped', async () => {
+    it('returns ascending latencies bounded by MOCK_SAMPLE_CAP with a boolean capped', async () => {
       const runner = new MockSimRunner();
       await runner.loadConfig(shortConfig());
       const result = await runner.queryWindowLatencies({ fromMs: 0, toMs: 1000 });
       expect(typeof result.capped).toBe('boolean');
-      expect(result.latencies.length).toBeLessThanOrEqual(4000);
+      expect(result.latencies.length).toBeLessThanOrEqual(MOCK_SAMPLE_CAP);
       // Every latency must be finite and non-negative.
       for (const v of result.latencies) {
         expect(Number.isFinite(v)).toBe(true);
@@ -175,6 +175,24 @@ describe('MockSimRunner', () => {
       for (let i = 1; i < result.latencies.length; i++) {
         expect(result.latencies[i]).toBeGreaterThanOrEqual(result.latencies[i - 1]!);
       }
+    });
+
+    it('caps a wide cohort and reports capped=true', async () => {
+      const runner = new MockSimRunner();
+      // Default config: 50 clients * 20/s; a 5000ms window => ~5000 raw samples.
+      await runner.loadConfig(shortConfig());
+      const result = await runner.queryWindowLatencies({ fromMs: 0, toMs: 5000 });
+      expect(result.capped).toBe(true);
+      expect(result.latencies).toHaveLength(MOCK_SAMPLE_CAP);
+    });
+
+    it('does not cap a small cohort and reports capped=false', async () => {
+      const runner = new MockSimRunner();
+      // 50 clients * 20/s over 1000ms => ~1000 raw samples, below the cap.
+      await runner.loadConfig(shortConfig());
+      const result = await runner.queryWindowLatencies({ fromMs: 0, toMs: 1000 });
+      expect(result.capped).toBe(false);
+      expect(result.latencies.length).toBeLessThan(MOCK_SAMPLE_CAP);
     });
 
     it('echoes back fromMs and toMs', async () => {

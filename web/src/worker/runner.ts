@@ -33,6 +33,12 @@ export const TICK_MS = 16;
 /** Hard cap on retained frames so a long run cannot allocate an unbounded ring. */
 export const MAX_CAPACITY = 6_000;
 
+/**
+ * Cap on synthetic latency samples returned per window. When the fleet-rate
+ * cohort exceeds this, `queryWindowLatencies` truncates and reports `capped`.
+ */
+export const MOCK_SAMPLE_CAP = 2_000;
+
 interface Channel {
   spec: RingBufferSpec;
   ring: GaugeRingBuffer;
@@ -170,12 +176,13 @@ export class MockSimRunner implements SimWorkerApi {
 
   async queryWindowLatencies(q: WindowQuery): Promise<WindowLatencySamples> {
     this.requireLoaded();
-    const n = Math.min(2000, this.windowSampleCount(q));
+    const raw = this.windowSampleCount(q);
+    const n = Math.min(MOCK_SAMPLE_CAP, raw);
     const latencies = Array.from({ length: n }, (_, i) =>
       this.sampleLatency(i / Math.max(1, n - 1)),
     );
     latencies.sort((a, b) => a - b);
-    return { fromMs: q.fromMs, toMs: q.toMs, latencies, capped: false };
+    return { fromMs: q.fromMs, toMs: q.toMs, latencies, capped: raw > MOCK_SAMPLE_CAP };
   }
 
   async requestInspection(_envoy: EnvoyId, _tMs: number): Promise<LbInspection> {
