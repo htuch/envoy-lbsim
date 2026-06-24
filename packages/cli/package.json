@@ -13,9 +13,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
-    "elbsim": "tsx src/cli.ts",
-    "validate": "tsx src/cli.ts validate",
-    "sim": "tsx src/cli.ts run"
+    "elbsim": "node bin/elbsim.mjs",
+    "validate": "node bin/elbsim.mjs validate",
+    "sim": "node bin/elbsim.mjs run"
   },
   "dependencies": {
     "@elbsim/config": "workspace:*",

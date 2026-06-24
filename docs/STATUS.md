@@ -168,6 +168,16 @@ lifted (maglev) and the mock otherwise, each labeled REAL/MOCK; real-only
 checks SKIP on the mock and upgrade as Track A lands ring_hash and the EDF
 policies. It is an exploration tool, not a CI gate.
 
+Working invocations (the bin is the entry point; npm scripts delegate to it):
+
+  pnpm --filter @elbsim/cli run validate -- --mock
+  pnpm --filter @elbsim/cli run validate -- --mock --policy maglev
+  pnpm --filter @elbsim/cli run sim -- --scenario default --policy maglev --mock
+  node packages/cli/bin/elbsim.mjs validate --mock
+  node packages/cli/bin/elbsim.mjs run --scenario default --policy maglev
+
+Omit `--mock` to use real Wasm (requires a built `packages/wasm-lb` output).
+
 ## Next step
 
 Track A's LB lift is done (all five policies, golden-tested, driving the real
