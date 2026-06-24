@@ -22,6 +22,8 @@
     "@elbsim/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2"
+    "@types/node": "^24.13.2",
+    "@vitest/coverage-v8": "^4.1.9",
+    "vitest": "^4.1.9"
   }
 }

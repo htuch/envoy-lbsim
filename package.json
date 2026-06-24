@@ -15,7 +15,7 @@
     "format": "biome check --write .",
     "ci": "biome ci .",
     "wasm:build": "pnpm --filter @elbsim/wasm-lb run build",
-    "wasm:test": "pnpm --filter @elbsim/wasm-lb run test"
+    "wasm:test": "pnpm --filter @elbsim/wasm-lb run test:golden"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.1",
