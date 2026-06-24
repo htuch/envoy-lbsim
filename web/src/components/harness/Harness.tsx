@@ -1,5 +1,6 @@
 import type { SimConfig } from '@elbsim/config';
 import { useMemo, useState } from 'react';
+import { WindowAnalysis } from '@/components/analysis/WindowAnalysis';
 import { TopologyGraph } from '@/components/topology/TopologyGraph';
 import { Segmented } from '@/components/ui/segmented';
 import { makeInspection, makeLatencyWindow, makeTopologySnapshot } from '@/synthetic';
@@ -55,9 +56,7 @@ export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
             onSelectEnvoy={setSelectedEnvoy}
           />
         )}
-        {view === 'analysis' && (
-          <Placeholder name="Cold-path analysis" detail={`${window.latencies.length} completed`} />
-        )}
+        {view === 'analysis' && <WindowAnalysis window={window} />}
         {view === 'inspector' && (
           <Placeholder
             name="LB inspector"
