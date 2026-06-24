@@ -10,6 +10,7 @@ import {
   type SharedTelemetry,
   type SimWorkerApi,
   type WindowAggregate,
+  type WindowLatencySamples,
   type WindowQuery,
 } from '@elbsim/protocol';
 import { channelSpecs, SyntheticModel } from './synthetic';
@@ -167,6 +168,16 @@ export class MockSimRunner implements SimWorkerApi {
     };
   }
 
+  async queryWindowLatencies(q: WindowQuery): Promise<WindowLatencySamples> {
+    this.requireLoaded();
+    const n = Math.min(2000, this.windowSampleCount(q));
+    const latencies = Array.from({ length: n }, (_, i) =>
+      this.sampleLatency(i / Math.max(1, n - 1)),
+    );
+    latencies.sort((a, b) => a - b);
+    return { fromMs: q.fromMs, toMs: q.toMs, latencies, capped: false };
+  }
+
   async requestInspection(_envoy: EnvoyId, _tMs: number): Promise<LbInspection> {
     // Inspection is real-Wasm deterministic replay (Track A serializes, Track D
     // renders); the synthetic mock has no LB structures to serialize.
@@ -253,5 +264,43 @@ export class MockSimRunner implements SimWorkerApi {
       model.fillFrame(ch.spec.kind, t, ch.scratch);
       ch.ring.push(t, ch.scratch);
     }
+  }
+
+  /**
+   * Number of synthetic samples for a window, derived from the same fleet-rate
+   * math that `queryWindow` uses for its `emitted` count.
+   */
+  private windowSampleCount(q: WindowQuery): number {
+    const config = this.config as SimConfig;
+    const span = Math.max(0, q.toMs - q.fromMs);
+    return Math.round((config.clients.count * config.clients.arrival.ratePerSec * span) / 1_000);
+  }
+
+  /**
+   * Map a unit-interval quantile `u` in [0,1] to a plausible latency (ms)
+   * consistent with the mock's fixed percentiles: P50=12, P90=38, P99=92.
+   *
+   * Uses piecewise linear interpolation across the anchor points
+   * (0,0), (0.5,12), (0.9,38), (0.99,92), (1.0,150) so the resulting
+   * sorted array will match those percentiles when queried.
+   */
+  private sampleLatency(u: number): number {
+    // Anchor: [quantile, latencyMs]
+    const anchors: [number, number][] = [
+      [0, 0],
+      [0.5, 12],
+      [0.9, 38],
+      [0.99, 92],
+      [1.0, 150],
+    ];
+    for (let i = 1; i < anchors.length; i++) {
+      const [q0, v0] = anchors[i - 1]!;
+      const [q1, v1] = anchors[i]!;
+      if (u <= q1) {
+        const t = q1 === q0 ? 0 : (u - q0) / (q1 - q0);
+        return v0 + t * (v1 - v0);
+      }
+    }
+    return 150;
   }
 }

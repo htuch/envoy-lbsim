@@ -159,6 +159,50 @@ describe('MockSimRunner', () => {
     await expect(runner.requestInspection(0, 0)).rejects.toThrow(/inspection/);
   });
 
+  describe('queryWindowLatencies', () => {
+    it('returns ascending latencies with length <= 4000 and a boolean capped', async () => {
+      const runner = new MockSimRunner();
+      await runner.loadConfig(shortConfig());
+      const result = await runner.queryWindowLatencies({ fromMs: 0, toMs: 1000 });
+      expect(typeof result.capped).toBe('boolean');
+      expect(result.latencies.length).toBeLessThanOrEqual(4000);
+      // Every latency must be finite and non-negative.
+      for (const v of result.latencies) {
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+      }
+      // Array must be ascending (sorted).
+      for (let i = 1; i < result.latencies.length; i++) {
+        expect(result.latencies[i]).toBeGreaterThanOrEqual(result.latencies[i - 1]!);
+      }
+    });
+
+    it('echoes back fromMs and toMs', async () => {
+      const runner = new MockSimRunner();
+      await runner.loadConfig(shortConfig());
+      const q = { fromMs: 100, toMs: 500 };
+      const result = await runner.queryWindowLatencies(q);
+      expect(result.fromMs).toBe(100);
+      expect(result.toMs).toBe(500);
+    });
+
+    it('returns an empty array for a zero-span window', async () => {
+      const runner = new MockSimRunner();
+      await runner.loadConfig(shortConfig());
+      const result = await runner.queryWindowLatencies({ fromMs: 500, toMs: 500 });
+      expect(result.latencies).toHaveLength(0);
+      expect(result.capped).toBe(false);
+    });
+
+    it('is deterministic: same query produces the same result', async () => {
+      const runner = new MockSimRunner();
+      await runner.loadConfig(shortConfig());
+      const a = await runner.queryWindowLatencies({ fromMs: 0, toMs: 1000 });
+      const b = await runner.queryWindowLatencies({ fromMs: 0, toMs: 1000 });
+      expect(a.latencies).toEqual(b.latencies);
+    });
+  });
+
   it('ignores a stray tick once stopped (defensive guard)', async () => {
     const runner = new MockSimRunner();
     await runner.loadConfig(shortConfig());

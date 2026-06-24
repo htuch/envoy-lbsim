@@ -1,5 +1,5 @@
 import { defaultSimConfig } from '@elbsim/config';
-import { type EntityKind, frameStride, gaugeFields } from '@elbsim/protocol';
+import { type EntityKind, frameStride, gaugeFields, gaugeIndex } from '@elbsim/protocol';
 import { describe, expect, it } from 'vitest';
 import { channelSpecs, SyntheticModel } from './synthetic';
 
@@ -87,5 +87,26 @@ describe('SyntheticModel', () => {
     model.fillFrame('client', 250, out);
     // emitRate is column 0 and bounded by the configured rate.
     expect(out[0]).toBeLessThanOrEqual(40);
+  });
+
+  it('writes a finite timedOut value into client frames at gaugeIndex("client","timedOut")', () => {
+    const config = defaultSimConfig();
+    const model = new SyntheticModel(config, config.seed);
+    const spec = channelSpecs(config, 1)[0]!; // client
+    const stride = frameStride(spec);
+    const fields = gaugeFields('client');
+    const timedOutIdx = gaugeIndex('client', 'timedOut');
+    // Sample multiple virtual times to confirm the gauge is written and bounded.
+    for (const t of [0, 500, 1000, 5000]) {
+      const out = new Float32Array(stride);
+      model.fillFrame('client', t, out);
+      // For each client entity, the timedOut column must be finite.
+      for (let e = 0; e < spec.entityCount; e++) {
+        const v = out[e * fields.length + timedOutIdx];
+        expect(v).toBeDefined();
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });
