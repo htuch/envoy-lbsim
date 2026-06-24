@@ -3,7 +3,12 @@ import { WindowAnalysis } from '@/components/analysis/WindowAnalysis';
 import { LbInspector } from '@/components/inspector/LbInspector';
 import { TopologyGraph } from '@/components/topology/TopologyGraph';
 import { useSimStore } from '@/store/sim-store';
-import { makeInspection, makeLatencyWindow, makeTopologySnapshot } from '@/synthetic';
+import {
+  computeWindowAggregate,
+  makeInspection,
+  makeLatencyWindow,
+  makeTopologySnapshot,
+} from '@/synthetic';
 
 /**
  * Track C re-host of the Track D views (topology, cold-path analysis, LB
@@ -32,11 +37,19 @@ export function AnalyticalViews({ view }: { view: AnalyticalViewId }): React.JSX
   const envoy = Math.min(selectedEnvoy, Math.max(0, config.envoys.count - 1));
 
   const snapshot = useMemo(() => makeTopologySnapshot(config, t), [config, t]);
-  const window = useMemo(() => {
+  const { windowAggregate, windowSamples } = useMemo(() => {
     // Follow the brushed window when one is committed; otherwise the run so far.
     const fromMs = selection?.fromMs ?? 0;
     const toMs = selection?.toMs ?? Math.max(t, 1);
-    return makeLatencyWindow(config, fromMs, toMs);
+    const latencyWindow = makeLatencyWindow(config, fromMs, toMs);
+    const agg = computeWindowAggregate(latencyWindow);
+    const samp = {
+      fromMs: latencyWindow.fromMs,
+      toMs: latencyWindow.toMs,
+      latencies: latencyWindow.latencies,
+      capped: false as const,
+    };
+    return { windowAggregate: agg, windowSamples: samp };
   }, [config, selection, t]);
   const inspection = useMemo(
     () => makeInspection(config, envoy, t, policy),
@@ -49,7 +62,7 @@ export function AnalyticalViews({ view }: { view: AnalyticalViewId }): React.JSX
         <TopologyGraph snapshot={snapshot} selectedEnvoy={envoy} onSelectEnvoy={setSelectedEnvoy} />
       );
     case 'analysis':
-      return <WindowAnalysis window={window} />;
+      return <WindowAnalysis aggregate={windowAggregate} samples={windowSamples} />;
     case 'inspector':
       return <LbInspector inspection={inspection} />;
   }

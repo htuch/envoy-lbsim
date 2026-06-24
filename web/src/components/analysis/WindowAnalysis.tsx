@@ -1,44 +1,76 @@
+import type { WindowAggregate, WindowLatencySamples } from '@elbsim/protocol';
 import * as Plot from '@observablehq/plot';
 import { useMemo } from 'react';
-import { computeWindowAggregate, type LatencyWindow } from '@/synthetic';
 import { PlotFigure } from './PlotFigure';
 import { latencyCdf, outcomeBreakdown } from './stats';
 
-/** Accent for the distribution marks; matched to the instrument palette. */
+/** Accent for the primary window distribution marks. */
 const ACCENT = 'hsl(222 65% 52%)';
+/** Muted overlay for the full-run comparison CDF. */
+const OVERLAY = 'hsl(222 35% 65%)';
 
 /**
  * Cold-path analytical view over a committed brushed window. Renders the latency
  * distribution (empirical CDF and histogram) and a goodput breakdown from the
- * window's completed-latency samples and outcome counts. In the real system the
- * window comes from the worker scanning the RequestEvent stream
- * (`queryWindow`); here it is the synthetic `LatencyWindow`.
+ * worker-provided aggregate and per-request latency samples.
+ *
+ * Props:
+ * - aggregate: pre-computed WindowAggregate from queryWindow (percentiles, counts).
+ * - samples: per-request latencies from queryWindowLatencies (CDF/histogram source).
+ * - fullRunSamples: optional full-run latencies; when provided, renders a faint
+ *   dashed CDF behind the window CDF for comparison.
  */
-export function WindowAnalysis({ window }: { window: LatencyWindow }): React.JSX.Element {
-  const agg = useMemo(() => computeWindowAggregate(window), [window]);
-  const cdf = useMemo(() => latencyCdf(window.latencies), [window.latencies]);
-  const breakdown = useMemo(() => outcomeBreakdown(agg), [agg]);
+export function WindowAnalysis({
+  aggregate,
+  samples,
+  fullRunSamples,
+}: {
+  aggregate: WindowAggregate;
+  samples: WindowLatencySamples;
+  fullRunSamples?: WindowLatencySamples;
+}): React.JSX.Element {
+  const breakdown = useMemo(() => outcomeBreakdown(aggregate), [aggregate]);
+  const cdf = useMemo(() => latencyCdf(samples.latencies), [samples.latencies]);
+  const fullRunCdf = useMemo(
+    () => (fullRunSamples ? latencyCdf(fullRunSamples.latencies) : null),
+    [fullRunSamples],
+  );
 
-  const cdfOptions = useMemo<Plot.PlotOptions>(
-    () => ({
+  const cdfOptions = useMemo<Plot.PlotOptions>(() => {
+    const marks: Plot.Markish[] = [
+      Plot.areaY(cdf, { x: 'latency', y: 'p', fill: ACCENT, fillOpacity: 0.12 }),
+      Plot.lineY(cdf, { x: 'latency', y: 'p', stroke: ACCENT, strokeWidth: 1.5 }),
+      Plot.ruleX([aggregate.latencyP50, aggregate.latencyP90, aggregate.latencyP99], {
+        stroke: 'currentColor',
+        strokeOpacity: 0.25,
+        strokeDasharray: '2,3',
+      }),
+    ];
+
+    if (fullRunCdf !== null) {
+      // Faint dashed full-run overlay, rendered first so it sits behind.
+      marks.unshift(
+        Plot.lineY(fullRunCdf, {
+          x: 'latency',
+          y: 'p',
+          stroke: OVERLAY,
+          strokeWidth: 1,
+          strokeDasharray: '4,4',
+          strokeOpacity: 0.55,
+        }),
+      );
+    }
+
+    return {
       width: 560,
       height: 200,
       marginLeft: 52,
       marginBottom: 34,
       x: { label: 'latency (ms) →', grid: true },
       y: { label: '↑ P(X ≤ x)', domain: [0, 1], grid: true, tickFormat: '%' },
-      marks: [
-        Plot.areaY(cdf, { x: 'latency', y: 'p', fill: ACCENT, fillOpacity: 0.12 }),
-        Plot.lineY(cdf, { x: 'latency', y: 'p', stroke: ACCENT, strokeWidth: 1.5 }),
-        Plot.ruleX([agg.latencyP50, agg.latencyP90, agg.latencyP99], {
-          stroke: 'currentColor',
-          strokeOpacity: 0.25,
-          strokeDasharray: '2,3',
-        }),
-      ],
-    }),
-    [cdf, agg],
-  );
+      marks,
+    };
+  }, [cdf, fullRunCdf, aggregate]);
 
   const histOptions = useMemo<Plot.PlotOptions>(
     () => ({
@@ -49,14 +81,14 @@ export function WindowAnalysis({ window }: { window: LatencyWindow }): React.JSX
       x: { label: 'latency (ms) →' },
       y: { label: '↑ count', grid: true },
       marks: [
-        Plot.rectY(window.latencies, {
+        Plot.rectY(samples.latencies, {
           ...Plot.binX({ y: 'count' }, { x: (d: number) => d, thresholds: 30 }),
           fill: ACCENT,
         }),
         Plot.ruleY([0]),
       ],
     }),
-    [window.latencies],
+    [samples.latencies],
   );
 
   return (
@@ -65,21 +97,21 @@ export function WindowAnalysis({ window }: { window: LatencyWindow }): React.JSX
         <header className="flex items-baseline justify-between">
           <h2 className="text-sm font-semibold tracking-tight">Window analysis</h2>
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {agg.fromMs}–{agg.toMs} ms · {agg.totalRequests} req
+            {aggregate.fromMs}&ndash;{aggregate.toMs} ms &middot; {aggregate.totalRequests} req
           </span>
         </header>
 
-        {agg.totalRequests === 0 ? (
+        {aggregate.totalRequests === 0 ? (
           <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
             No requests in the selected window.
           </p>
         ) : (
           <>
             <div className="grid grid-cols-4 gap-2">
-              <Stat label="goodput" value={`${(agg.goodput * 100).toFixed(1)}%`} />
-              <Stat label="p50" value={`${agg.latencyP50.toFixed(1)} ms`} />
-              <Stat label="p90" value={`${agg.latencyP90.toFixed(1)} ms`} />
-              <Stat label="p99" value={`${agg.latencyP99.toFixed(1)} ms`} />
+              <Stat label="goodput" value={`${(aggregate.goodput * 100).toFixed(1)}%`} />
+              <Stat label="p50" value={`${aggregate.latencyP50.toFixed(1)} ms`} />
+              <Stat label="p90" value={`${aggregate.latencyP90.toFixed(1)} ms`} />
+              <Stat label="p99" value={`${aggregate.latencyP99.toFixed(1)} ms`} />
             </div>
 
             <section className="space-y-1.5">
