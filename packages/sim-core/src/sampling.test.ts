@@ -1,7 +1,7 @@
-import type { Distribution } from '@elbsim/config';
+import type { Distribution, KeyDistribution } from '@elbsim/config';
 import { describe, expect, it } from 'vitest';
 import { Prng } from './prng';
-import { sample, sampleKey, sampleZipf } from './sampling';
+import { createKeySampler, sample, sampleKey, sampleZipf } from './sampling';
 
 const seeded = () => new Prng(2024);
 
@@ -59,5 +59,36 @@ describe('sampleKey', () => {
     // A PRNG whose first float is ~1 pushes the target to the final bucket.
     const nearOne = { nextFloat: () => 0.999999999 } as unknown as Prng;
     expect(sampleZipf(5, 1, nearOne)).toBe(4);
+  });
+});
+
+describe('createKeySampler', () => {
+  it('matches sampleKey draw-for-draw for uniform keys', () => {
+    const dist: KeyDistribution = { kind: 'uniform', n: 40 };
+    const draw = createKeySampler(dist);
+    const a = new Prng(7);
+    const b = new Prng(7);
+    for (let i = 0; i < 100; i++) expect(draw(a)).toBe(sampleKey(dist, b));
+  });
+
+  it('matches sampleKey draw-for-draw for zipf keys (cached CDF)', () => {
+    const dist: KeyDistribution = { kind: 'zipf', n: 30, s: 1.1 };
+    const draw = createKeySampler(dist);
+    const a = new Prng(99);
+    const b = new Prng(99);
+    for (let i = 0; i < 100; i++) expect(draw(a)).toBe(sampleKey(dist, b));
+  });
+
+  it('keeps zipf keys in range and skewed toward low indices', () => {
+    const draw = createKeySampler({ kind: 'zipf', n: 20, s: 1.2 });
+    const rng = new Prng(2024);
+    const counts = new Array(20).fill(0);
+    for (let i = 0; i < 5000; i++) {
+      const k = draw(rng);
+      expect(k).toBeGreaterThanOrEqual(0);
+      expect(k).toBeLessThan(20);
+      counts[k]++;
+    }
+    expect(counts[0]).toBeGreaterThan(counts[19] as number);
   });
 });

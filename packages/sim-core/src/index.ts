@@ -1,3 +1,4 @@
+export * from './engine';
 export * from './event-queue';
 export * from './histogram';
 export * from './kernel';
