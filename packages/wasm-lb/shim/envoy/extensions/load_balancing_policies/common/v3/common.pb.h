@@ -63,7 +63,10 @@ public:
     bool has_min_cluster_size() const { return false; }
     const google::protobuf::UInt64Value& min_cluster_size() const { return min_cluster_size_; }
     google::protobuf::UInt64Value* mutable_min_cluster_size() { return &min_cluster_size_; }
-    bool fail_traffic_on_panic() const { return false; }
+    bool fail_traffic_on_panic() const { return fail_traffic_on_panic_; }
+    // Setter exists only for the never-invoked legacy-config conversion path
+    // (convertLocalityLbConfigTo); the harness drives locality mode from config.
+    void set_fail_traffic_on_panic(bool v) { fail_traffic_on_panic_ = v; }
     bool force_locality_direct_routing() const { return false; }
     bool has_force_local_zone() const { return false; }
     const ForceLocalZone& force_local_zone() const { return force_local_zone_; }
@@ -74,6 +77,7 @@ public:
     envoy::type::v3::Percent routing_enabled_;
     google::protobuf::UInt64Value min_cluster_size_;
     ForceLocalZone force_local_zone_;
+    bool fail_traffic_on_panic_{false};
   };
 
   class LocalityWeightedLbConfig {};

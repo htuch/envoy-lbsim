@@ -1,29 +1,40 @@
 // Real Envoy LB compiled to Wasm, exposed over the Embind ABI declared in
 // @elbsim/protocol (wasm-abi.ts).
 //
-// This translation unit instantiates Envoy's ACTUAL load balancer end to end:
+// This translation unit instantiates Envoy's ACTUAL load balancers end to end:
 // the kernel's resolved host set is turned into a real PrioritySet / HostSet, and
-// a real MaglevLoadBalancer (the thread-aware wrapper over the unmodified
-// source/extensions/load_balancing_policies/{common,maglev}/*.cc) is driven
-// through initialize() -> factory()->create() -> chooseHost(). So Envoy's own
-// priority selection, panic-mode threshold, healthy/degraded partitioning,
-// locality handling, and weight normalization all run for real -- not just the
-// Maglev table. The shim/ headers shadow only Envoy's leaf interface headers
-// (Host/HostSet/PrioritySet, stats, runtime, the request-hashing HTTP path);
-// every algorithm and the base itself is the real source. See docs/ARCHITECTURE.md
-// and packages/wasm-lb/shim.
+// a real Envoy load balancer (the unmodified
+// source/extensions/load_balancing_policies/{common,maglev,ring_hash}/*.cc) is
+// driven through its real interface. So Envoy's own priority selection, panic-mode
+// threshold, healthy/degraded partitioning, locality handling, and weight
+// normalization all run for real -- not just the policy data structure. The shim/
+// headers shadow only Envoy's leaf interface headers (Host/HostSet/PrioritySet,
+// stats, runtime, the request-hashing HTTP path); every algorithm and the base
+// itself is the real source. See docs/ARCHITECTURE.md and packages/wasm-lb/shim.
+//
+// The consistent-hash policies (maglev, ring_hash) are ThreadAwareLoadBalancers:
+// they build an immutable structure on each membership change and resolve a
+// const, stateless worker LB per pick (initialize() -> factory()->create() ->
+// chooseHost()). The shared driving machinery lives in ThreadAwareLbInstance.
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <emscripten/bind.h>
 
-#include "source/common/upstream/load_balancer_context_base.h" // REAL
-#include "source/extensions/load_balancing_policies/maglev/maglev_lb.h" // REAL
+#include "source/common/upstream/load_balancer_context_base.h"                       // REAL
+#include "source/extensions/load_balancing_policies/least_request/least_request_lb.h" // REAL
+#include "source/extensions/load_balancing_policies/maglev/maglev_lb.h"              // REAL
+#include "source/extensions/load_balancing_policies/random/random_lb.h"             // REAL
+#include "source/extensions/load_balancing_policies/ring_hash/ring_hash_lb.h"       // REAL
+#include "source/extensions/load_balancing_policies/round_robin/round_robin_lb.h"   // REAL
 
 namespace EU = Envoy::Upstream;
-namespace ECfg = Envoy::Config;
 
 namespace {
 
@@ -52,7 +63,7 @@ private:
 };
 
 // A leaf stats scope. The harness surfaces no Envoy stats; createScope just hands
-// back another inert scope so the maglev "maglev_lb." sub-scope construction runs.
+// back another inert scope so the policy "<name>_lb." sub-scope construction runs.
 class ScopeImpl : public Envoy::Stats::Scope {
 public:
   Envoy::Stats::ScopeSharedPtr createScope(const std::string&) override {
@@ -250,6 +261,57 @@ private:
   const uint64_t hash_;
 };
 
+// A fixed clock for the EDF base. Slow start is out of the initial lift (it needs
+// the kernel's virtual clock wired in), and is left disabled (window 0), so the
+// time source is only read by the slow-start path's no-ops; a constant epoch is
+// sufficient and keeps picks deterministic.
+class TimeSourceImpl : public Envoy::TimeSource {
+public:
+  Envoy::SystemTime systemTime() override { return {}; }
+  Envoy::MonotonicTime monotonicTime() override { return {}; }
+};
+
+// Build the real PrioritySet/HostSet from the kernel's flat host arrays, grouped
+// by priority and partitioned by health, exactly as Envoy's membership update
+// would produce it. Shared by every policy.
+std::unique_ptr<EU::PrioritySet>
+buildPrioritySet(const std::vector<int>& backends, const std::vector<double>& weights,
+                 const std::vector<int>& healths, const std::vector<int>& priorities,
+                 const std::vector<std::string>& regions, const std::vector<std::string>& zones,
+                 const std::vector<int>& active_requests, uint32_t overprovisioning_factor,
+                 const ClusterInfoImpl& cluster) {
+  uint32_t max_priority = 0;
+  for (int p : priorities) {
+    max_priority = std::max(max_priority, static_cast<uint32_t>(p));
+  }
+  std::vector<EU::HostVector> by_priority(max_priority + 1);
+  for (size_t i = 0; i < backends.size(); ++i) {
+    const auto health = static_cast<EU::Host::Health>(healths[i]);
+    const std::string region = i < regions.size() ? regions[i] : std::string();
+    const std::string zone = i < zones.size() ? zones[i] : std::string();
+    const uint64_t active =
+        i < active_requests.size() ? static_cast<uint64_t>(active_requests[i]) : 0;
+    by_priority[priorities[i]].push_back(std::make_shared<HostImpl>(
+        static_cast<uint32_t>(backends[i]), static_cast<uint32_t>(weights[i]), health, region, zone,
+        active, cluster));
+  }
+  std::vector<EU::HostSetPtr> host_sets;
+  host_sets.reserve(by_priority.size());
+  for (uint32_t p = 0; p < by_priority.size(); ++p) {
+    host_sets.push_back(
+        std::make_unique<HostSetImpl>(p, overprovisioning_factor, std::move(by_priority[p])));
+  }
+  return std::make_unique<PrioritySetImpl>(std::move(host_sets));
+}
+
+// Format a 64-bit value as 16 fixed-width lowercase hex chars, so a lexical sort
+// of the strings matches the numeric ring order (mirrors the inspection contract).
+std::string toHex16(uint64_t v) {
+  char buf[17];
+  std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(v));
+  return std::string(buf, 16);
+}
+
 // ---- The ABI instance -------------------------------------------------------
 
 class LbInstance {
@@ -258,62 +320,88 @@ public:
   virtual void updateHosts(const std::vector<int>& backends, const std::vector<double>& weights,
                            const std::vector<int>& healths, const std::vector<int>& priorities,
                            const std::vector<std::string>& regions,
-                           const std::vector<std::string>& zones) = 0;
+                           const std::vector<std::string>& zones,
+                           const std::vector<int>& active_requests) = 0;
   virtual int chooseHost(double hash) = 0;
   virtual emscripten::val inspect() = 0;
 };
 
-class MaglevLb : public LbInstance {
+// Shared state and host-set rebuild for every concrete policy: the inert Envoy
+// leaves (stats/scope/runtime/random/cluster), the panic/overprovisioning knobs,
+// and the live PrioritySet. updateHosts() rebuilds the priority set and defers
+// the policy-specific LB construction to rebuild().
+class LbInstanceBase : public LbInstance {
 public:
-  MaglevLb(uint32_t table_size, bool use_hostname, uint32_t healthy_panic_threshold,
-           uint32_t overprovisioning_factor, uint32_t seed)
+  LbInstanceBase(uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor, uint32_t seed)
       : healthy_panic_threshold_(healthy_panic_threshold),
-        overprovisioning_factor_(overprovisioning_factor), random_(seed) {
-    config_.mutable_table_size()->set_value(table_size);
-    config_.mutable_consistent_hashing_lb_config()->set_use_hostname_for_hashing(use_hostname);
-  }
+        overprovisioning_factor_(overprovisioning_factor), random_(seed) {}
 
   void updateHosts(const std::vector<int>& backends, const std::vector<double>& weights,
                    const std::vector<int>& healths, const std::vector<int>& priorities,
-                   const std::vector<std::string>& regions,
-                   const std::vector<std::string>& zones) override {
-    // Group hosts by priority, preserving input order within each level.
-    uint32_t max_priority = 0;
-    for (int p : priorities) {
-      max_priority = std::max(max_priority, static_cast<uint32_t>(p));
-    }
-    std::vector<EU::HostVector> by_priority(max_priority + 1);
-    for (size_t i = 0; i < backends.size(); ++i) {
-      const auto health = static_cast<EU::Host::Health>(healths[i]);
-      const std::string region = i < regions.size() ? regions[i] : std::string();
-      const std::string zone = i < zones.size() ? zones[i] : std::string();
-      by_priority[priorities[i]].push_back(std::make_shared<HostImpl>(
-          static_cast<uint32_t>(backends[i]), static_cast<uint32_t>(weights[i]), health, region,
-          zone, 0, cluster_));
-    }
-    std::vector<EU::HostSetPtr> host_sets;
-    host_sets.reserve(by_priority.size());
-    for (uint32_t p = 0; p < by_priority.size(); ++p) {
-      host_sets.push_back(
-          std::make_unique<HostSetImpl>(p, overprovisioning_factor_, std::move(by_priority[p])));
-    }
+                   const std::vector<std::string>& regions, const std::vector<std::string>& zones,
+                   const std::vector<int>& active_requests) override {
+    priority_set_ = buildPrioritySet(backends, weights, healths, priorities, regions, zones,
+                                     active_requests, overprovisioning_factor_, cluster_);
+    rebuild();
+  }
 
-    // Rebuild the whole LB on the new membership (matches Envoy's refresh, without
-    // threading the incremental priority callback through the harness).
-    priority_set_ = std::make_unique<PrioritySetImpl>(std::move(host_sets));
-    lb_ = std::make_unique<EU::MaglevLoadBalancer>(*priority_set_, stats_, scope_, runtime_, random_,
-                                                   healthy_panic_threshold_, config_, nullptr);
+protected:
+  // Construct the policy LB from priority_set_ (called on every membership change,
+  // matching Envoy's refresh without threading incremental priority callbacks).
+  virtual void rebuild() = 0;
+
+  const uint32_t healthy_panic_threshold_;
+  const uint32_t overprovisioning_factor_;
+  EU::ClusterLbStats stats_{};
+  ScopeImpl scope_;
+  Envoy::Runtime::Loader runtime_;
+  RandomImpl random_;
+  ClusterInfoImpl cluster_;
+  std::unique_ptr<EU::PrioritySet> priority_set_;
+};
+
+// Driver for the ThreadAwareLoadBalancers (maglev, ring_hash): build the immutable
+// structure on rebuild(), then resolve a const worker LB that picks per request.
+class ThreadAwareLbInstance : public LbInstanceBase {
+public:
+  using LbInstanceBase::LbInstanceBase;
+
+  int chooseHost(double hash) override { return chooseBackendForHash(static_cast<uint64_t>(hash)); }
+
+protected:
+  void rebuild() override {
+    lb_ = makeThreadAware(*priority_set_);
     const absl::Status status = lb_->initialize();
     worker_lb_ = status.ok() ? lb_->factory()->create({*priority_set_}) : nullptr;
   }
 
-  int chooseHost(double hash) override {
+  // Resolve the backend the real worker LB picks for a precomputed 64-bit hash.
+  // The thread-aware worker LB is const/stateless, so probing it here (used by
+  // inspect()) does not disturb routing.
+  int chooseBackendForHash(uint64_t hash) {
     if (!worker_lb_) {
       return -1;
     }
-    ContextImpl ctx(static_cast<uint64_t>(hash));
-    const auto host = EU::LoadBalancer::onlyAllowSynchronousHostSelection(worker_lb_->chooseHost(&ctx));
+    ContextImpl ctx(hash);
+    const auto host =
+        EU::LoadBalancer::onlyAllowSynchronousHostSelection(worker_lb_->chooseHost(&ctx));
     return host ? static_cast<int>(static_cast<const HostImpl&>(*host).backend()) : -1;
+  }
+
+  virtual std::unique_ptr<EU::ThreadAwareLoadBalancerBase>
+  makeThreadAware(EU::PrioritySet& priority_set) = 0;
+
+  std::unique_ptr<EU::ThreadAwareLoadBalancerBase> lb_;
+  EU::LoadBalancerPtr worker_lb_;
+};
+
+class MaglevLb : public ThreadAwareLbInstance {
+public:
+  MaglevLb(uint32_t table_size, bool use_hostname, uint32_t healthy_panic_threshold,
+           uint32_t overprovisioning_factor, uint32_t seed)
+      : ThreadAwareLbInstance(healthy_panic_threshold, overprovisioning_factor, seed) {
+    config_.mutable_table_size()->set_value(table_size);
+    config_.mutable_consistent_hashing_lb_config()->set_use_hostname_for_hashing(use_hostname);
   }
 
   emscripten::val inspect() override {
@@ -326,30 +414,281 @@ public:
     // a single all-healthy set deterministically, then the maglev table by hash).
     emscripten::val table = emscripten::val::array();
     for (uint32_t slot = 0; slot < table_size; ++slot) {
-      table.call<void>("push", chooseHost(static_cast<double>(slot)));
+      table.call<void>("push", chooseBackendForHash(slot));
     }
     out.set("table", table);
     return out;
   }
 
+protected:
+  std::unique_ptr<EU::ThreadAwareLoadBalancerBase>
+  makeThreadAware(EU::PrioritySet& priority_set) override {
+    return std::make_unique<EU::MaglevLoadBalancer>(priority_set, stats_, scope_, runtime_, random_,
+                                                    healthy_panic_threshold_, config_, nullptr);
+  }
+
 private:
-  const uint32_t healthy_panic_threshold_;
-  const uint32_t overprovisioning_factor_;
-  EU::ClusterLbStats stats_{};
-  ScopeImpl scope_;
-  Envoy::Runtime::Loader runtime_;
-  RandomImpl random_;
-  ClusterInfoImpl cluster_;
   envoy::extensions::load_balancing_policies::maglev::v3::Maglev config_;
-  std::unique_ptr<EU::PrioritySet> priority_set_;
-  std::unique_ptr<EU::MaglevLoadBalancer> lb_;
-  EU::LoadBalancerPtr worker_lb_;
+};
+
+class RingHashLb : public ThreadAwareLbInstance {
+public:
+  using RingHashProto = envoy::extensions::load_balancing_policies::ring_hash::v3::RingHash;
+
+  RingHashLb(uint32_t minimum_ring_size, uint32_t maximum_ring_size, uint32_t hash_function,
+             bool use_hostname, uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor,
+             uint32_t seed)
+      : ThreadAwareLbInstance(healthy_panic_threshold, overprovisioning_factor, seed) {
+    config_.mutable_minimum_ring_size()->set_value(minimum_ring_size);
+    config_.mutable_maximum_ring_size()->set_value(maximum_ring_size);
+    config_.set_hash_function(static_cast<RingHashProto::HashFunction>(hash_function));
+    config_.set_use_hostname_for_hashing(use_hostname);
+  }
+
+  emscripten::val inspect() override {
+    emscripten::val out = emscripten::val::object();
+    out.set("kind", std::string("ring"));
+    // The real ketama ring (RingHashLoadBalancer::Ring::ring_) is private to the
+    // lifted source, which we compile untouched. We expose the ring faithfully by
+    // probing the real worker LB at a bounded, evenly-spaced grid across the
+    // 64-bit hash space: each sample's owning backend is the real ring's answer,
+    // so the per-backend tallies are weight/health-accurate ownership shares. The
+    // sample positions stand in as ring points (the internal ring may hold up to
+    // maximumRingSize entries; this is the routing-observable view at SAMPLES
+    // resolution, which is what the inspector renders).
+    constexpr uint32_t kSamples = 4096;
+    emscripten::val entries = emscripten::val::array();
+    int count = 0;
+    if (worker_lb_) {
+      for (uint32_t i = 0; i < kSamples; ++i) {
+        const uint64_t hash =
+            static_cast<uint64_t>((static_cast<__uint128_t>(i) << 64) / kSamples);
+        emscripten::val e = emscripten::val::object();
+        e.set("hash", toHex16(hash));
+        e.set("backend", chooseBackendForHash(hash));
+        entries.call<void>("push", e);
+        ++count;
+      }
+    }
+    out.set("entries", entries);
+    out.set("size", count);
+    return out;
+  }
+
+protected:
+  std::unique_ptr<EU::ThreadAwareLoadBalancerBase>
+  makeThreadAware(EU::PrioritySet& priority_set) override {
+    return std::make_unique<EU::RingHashLoadBalancer>(priority_set, stats_, scope_, runtime_,
+                                                      random_, healthy_panic_threshold_, config_,
+                                                      nullptr);
+  }
+
+private:
+  RingHashProto config_;
+};
+
+// Driver for the ZoneAware/EDF load balancers (round_robin, least_request,
+// random): these are not thread-aware -- the constructed LB IS the worker LB and
+// picks per request via chooseHost(context). The base resolves health/panic/
+// priority over the existing host sets in its constructor (and EDF builds its
+// schedule in initialize(), called from the subclass ctor), so a fresh rebuild on
+// each membership change matches Envoy's refresh.
+class ZoneAwareLbInstance : public LbInstanceBase {
+public:
+  using LbInstanceBase::LbInstanceBase;
+
+  int chooseHost(double hash) override {
+    if (!lb_) {
+      return -1;
+    }
+    ContextImpl ctx(static_cast<uint64_t>(hash));
+    const auto host = EU::LoadBalancer::onlyAllowSynchronousHostSelection(lb_->chooseHost(&ctx));
+    return host ? static_cast<int>(static_cast<const HostImpl&>(*host).backend()) : -1;
+  }
+
+protected:
+  void rebuild() override { lb_ = makeLb(*priority_set_); }
+
+  virtual std::unique_ptr<EU::LoadBalancer> makeLb(EU::PrioritySet& priority_set) = 0;
+
+  // Effective LB weight for the EDF schedule view. round_robin uses the raw host
+  // weight; least_request overrides this to fold in active requests.
+  virtual double effectiveWeight(const HostImpl& host) const {
+    return static_cast<double>(host.weight());
+  }
+
+  // Serialize the weighted round_robin / least_request schedule (EdfInspection).
+  // The EDF scheduler the base holds -- its per-host deadlines and virtual clock --
+  // is private to the lifted source, which we compile untouched. So we expose the
+  // schedule faithfully through the public path: build a throwaway sibling LB over
+  // the same host set (leaving the live LB undisturbed) and peek it to discover the
+  // real serving set (post health/panic/priority) in scheduler order. Each host's
+  // entry carries its effective LB weight and the EDF deadline (1/weight) the
+  // scheduler assigns on insert; currentTime is the schedule origin.
+  emscripten::val inspectEdf() {
+    emscripten::val out = emscripten::val::object();
+    out.set("kind", std::string("edf"));
+    out.set("currentTime", 0.0);
+
+    std::vector<const HostImpl*> serving;
+    std::unique_ptr<EU::LoadBalancer> probe = makeLb(*priority_set_);
+    if (probe) {
+      constexpr int kPeeks = 2048;
+      for (int i = 0; i < kPeeks; ++i) {
+        ContextImpl ctx(static_cast<uint64_t>(i));
+        const auto host =
+            EU::LoadBalancer::onlyAllowSynchronousHostSelection(probe->chooseHost(&ctx));
+        if (!host) {
+          continue;
+        }
+        const auto* h = &static_cast<const HostImpl&>(*host);
+        bool seen = false;
+        for (const auto* s : serving) {
+          if (s->backend() == h->backend()) {
+            seen = true;
+            break;
+          }
+        }
+        if (!seen) {
+          serving.push_back(h);
+        }
+      }
+    }
+    // Order by EDF deadline ascending (smaller 1/weight = heavier = picked first).
+    std::sort(serving.begin(), serving.end(), [this](const HostImpl* a, const HostImpl* b) {
+      return effectiveWeight(*a) > effectiveWeight(*b);
+    });
+
+    emscripten::val entries = emscripten::val::array();
+    for (const auto* h : serving) {
+      const double w = effectiveWeight(*h);
+      emscripten::val e = emscripten::val::object();
+      e.set("backend", static_cast<int>(h->backend()));
+      e.set("weight", w);
+      e.set("deadline", w > 0.0 ? 1.0 / w : 0.0);
+      entries.call<void>("push", e);
+    }
+    out.set("entries", entries);
+    out.set("prepick", emscripten::val::array());
+    return out;
+  }
+
+  std::unique_ptr<EU::LoadBalancer> lb_;
+};
+
+class RoundRobinLb : public ZoneAwareLbInstance {
+public:
+  RoundRobinLb(uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor, uint32_t seed)
+      : ZoneAwareLbInstance(healthy_panic_threshold, overprovisioning_factor, seed) {}
+
+  emscripten::val inspect() override { return inspectEdf(); }
+
+protected:
+  std::unique_ptr<EU::LoadBalancer> makeLb(EU::PrioritySet& priority_set) override {
+    return std::make_unique<EU::RoundRobinLoadBalancer>(priority_set, nullptr, stats_, runtime_,
+                                                        random_, healthy_panic_threshold_, config_,
+                                                        time_source_);
+  }
+
+private:
+  envoy::extensions::load_balancing_policies::round_robin::v3::RoundRobin config_;
+  TimeSourceImpl time_source_;
+};
+
+class LeastRequestLb : public ZoneAwareLbInstance {
+public:
+  using LeastRequestProto =
+      envoy::extensions::load_balancing_policies::least_request::v3::LeastRequest;
+
+  LeastRequestLb(uint32_t choice_count, double active_request_bias, uint32_t selection_method,
+                 uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor, uint32_t seed)
+      : ZoneAwareLbInstance(healthy_panic_threshold, overprovisioning_factor, seed),
+        active_request_bias_(active_request_bias) {
+    config_.mutable_choice_count()->set_value(choice_count);
+    config_.mutable_active_request_bias()->set_default_value(active_request_bias);
+    config_.set_selection_method(static_cast<LeastRequestProto::SelectionMethod>(selection_method));
+  }
+
+  emscripten::val inspect() override { return inspectEdf(); }
+
+protected:
+  std::unique_ptr<EU::LoadBalancer> makeLb(EU::PrioritySet& priority_set) override {
+    return std::make_unique<EU::LeastRequestLoadBalancer>(priority_set, nullptr, stats_, runtime_,
+                                                          random_, healthy_panic_threshold_, config_,
+                                                          time_source_);
+  }
+
+  // Mirrors least_request_lb.cc hostWeight (sans slow start): the LB weight scaled
+  // by active requests, so the schedule view reflects least_request's real bias.
+  double effectiveWeight(const HostImpl& host) const override {
+    const double weight = static_cast<double>(host.weight());
+    const double active_plus_one = static_cast<double>(host.stats().rq_active_.value()) + 1.0;
+    if (active_request_bias_ == 0.0) {
+      return weight;
+    }
+    if (active_request_bias_ == 1.0) {
+      return weight / active_plus_one;
+    }
+    return weight / std::pow(active_plus_one, active_request_bias_);
+  }
+
+private:
+  LeastRequestProto config_;
+  TimeSourceImpl time_source_;
+  const double active_request_bias_;
+};
+
+class RandomLb : public ZoneAwareLbInstance {
+public:
+  RandomLb(uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor, uint32_t seed)
+      : ZoneAwareLbInstance(healthy_panic_threshold, overprovisioning_factor, seed) {}
+
+  // Random keeps no persistent structure.
+  emscripten::val inspect() override {
+    emscripten::val out = emscripten::val::object();
+    out.set("kind", std::string("none"));
+    return out;
+  }
+
+protected:
+  std::unique_ptr<EU::LoadBalancer> makeLb(EU::PrioritySet& priority_set) override {
+    return std::make_unique<EU::RandomLoadBalancer>(priority_set, nullptr, stats_, runtime_, random_,
+                                                    healthy_panic_threshold_, config_);
+  }
+
+private:
+  envoy::extensions::load_balancing_policies::random::v3::Random config_;
 };
 
 MaglevLb* createMaglevLb(uint32_t table_size, bool use_hostname, uint32_t healthy_panic_threshold,
                          uint32_t overprovisioning_factor, uint32_t seed) {
   return new MaglevLb(table_size, use_hostname, healthy_panic_threshold, overprovisioning_factor,
                       seed);
+}
+
+RoundRobinLb* createRoundRobinLb(uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor,
+                                 uint32_t seed) {
+  return new RoundRobinLb(healthy_panic_threshold, overprovisioning_factor, seed);
+}
+
+LeastRequestLb* createLeastRequestLb(uint32_t choice_count, double active_request_bias,
+                                     uint32_t selection_method, uint32_t healthy_panic_threshold,
+                                     uint32_t overprovisioning_factor, uint32_t seed) {
+  return new LeastRequestLb(choice_count, active_request_bias, selection_method,
+                            healthy_panic_threshold, overprovisioning_factor, seed);
+}
+
+RandomLb* createRandomLb(uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor,
+                         uint32_t seed) {
+  return new RandomLb(healthy_panic_threshold, overprovisioning_factor, seed);
+}
+
+RingHashLb* createRingHashLb(uint32_t minimum_ring_size, uint32_t maximum_ring_size,
+                             uint32_t hash_function, bool use_hostname,
+                             uint32_t healthy_panic_threshold, uint32_t overprovisioning_factor,
+                             uint32_t seed) {
+  return new RingHashLb(minimum_ring_size, maximum_ring_size, hash_function, use_hostname,
+                        healthy_panic_threshold, overprovisioning_factor, seed);
 }
 
 } // namespace
@@ -365,6 +704,15 @@ EMSCRIPTEN_BINDINGS(elbsim_wasm_lb) {
       .function("inspect", &LbInstance::inspect);
 
   emscripten::class_<MaglevLb, emscripten::base<LbInstance>>("MaglevLb");
+  emscripten::class_<RingHashLb, emscripten::base<LbInstance>>("RingHashLb");
+  emscripten::class_<RoundRobinLb, emscripten::base<LbInstance>>("RoundRobinLb");
+  emscripten::class_<LeastRequestLb, emscripten::base<LbInstance>>("LeastRequestLb");
+  emscripten::class_<RandomLb, emscripten::base<LbInstance>>("RandomLb");
 
   emscripten::function("createMaglevLb", &createMaglevLb, emscripten::allow_raw_pointers());
+  emscripten::function("createRingHashLb", &createRingHashLb, emscripten::allow_raw_pointers());
+  emscripten::function("createRoundRobinLb", &createRoundRobinLb, emscripten::allow_raw_pointers());
+  emscripten::function("createLeastRequestLb", &createLeastRequestLb,
+                       emscripten::allow_raw_pointers());
+  emscripten::function("createRandomLb", &createRandomLb, emscripten::allow_raw_pointers());
 }

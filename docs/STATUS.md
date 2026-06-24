@@ -6,17 +6,21 @@ Living document. `/new-session` reads it to start; `/wrap-session` updates it.
 
 Phase 0 (scaffolding) is complete. Tracks B (simulation kernel), C (frontend
 shell + hot path), and D (topology, cold path, inspector) are done, and Track D's
-views are now hosted in Track C's real shell (the C-D reconciliation). Track A is
-underway: real Envoy v1.36.0 maglev is lifted to Wasm through the real
-`LoadBalancerBase`, validated slot-for-slot against the `lb_core` oracle. `sim-core`
-is a full discrete-event simulation behind `SimController`; the web app renders
-live timelines plus the topology/analysis/inspector views, all driven by the live
+views are now hosted in Track C's real shell (the C-D reconciliation). Track A's
+LB lift is complete for the in-scope policies: all five Envoy v1.36.0 load
+balancers (maglev, ring_hash, round_robin, least_request, random) are lifted to
+Wasm through the real `LoadBalancerBase` / `ThreadAwareLoadBalancerBase` /
+`EdfLoadBalancerBase`, each golden-tested, and the real `LbModule` drives the real
+`SimEngine` end to end (verified by a sim-core integration test). `sim-core` is a
+full discrete-event simulation behind `SimController`; the web app renders live
+timelines plus the topology/analysis/inspector views, all driven by the live
 store. The repo builds, type checks, lints, and tests green under the 95% gate.
 
-Remaining work: finish Track A (ring_hash, the EDF policies) and the real-data
-integration (swap `mockLbModule` for the real Wasm `LbModule`; feed the analytical
-views from real worker telemetry instead of the synthetic generators). The
-concrete next step is under "Next step" below.
+Remaining work: the web real-data integration (swap the synthetic worker for the
+real `SimController` so the analytical views are fed from real worker telemetry
+instead of the synthetic generators) and the optional Track A polish (zone-aware
+locality bucketing, slow start). The concrete next step is under "Next step"
+below.
 
 ## Phase 0: scaffolding and interfaces (DONE)
 
@@ -44,35 +48,49 @@ Done:
   subset; the base added abseil Cord/CRC + the pthread waiter) links under `em++`.
 - The real Envoy LB base is LIFTED, not shimmed: `make build` compiles the
   unmodified `common/{load_balancer_impl,thread_aware_lb_impl,locality_wrr}.cc` +
-  `maglev/maglev_lb.cc`, so Envoy's own priority selection, panic threshold,
-  healthy/degraded partitioning, locality, and weight normalization run for real.
-  The `shim/` headers shadow only the leaf interfaces (`upstream.h`
-  Host/HostSet/PrioritySet, stats/runtime/time, the request-hashing HTTP path);
-  `types.h`/`phantom.h`/`edf_scheduler.h` stay real. No protobuf runtime; `xxhash`
-  0.8.3 vendored.
-- Maglev end-to-end: `src/lb.cpp` builds a concrete `PrioritySet`/`HostSet` from
-  `WasmHostSet` and drives the real `MaglevLoadBalancer` through `initialize()` ->
-  `factory()->create()` -> `chooseHost()`. ABI:
-  `createMaglevLb(tableSize,useHostname,panicThreshold,overprovisioning,seed)` +
-  `updateHosts(backends,weights,healths,priorities,regions,zones)`;
-  `bindings/index.ts` wraps it as the protocol `LbModule`. Golden node test
-  (`test/maglev.mjs`) matches the `lb_core` oracle slot-for-slot plus
-  distribution/determinism/disruption AND real-base fidelity (health filtering,
-  panic mode, priority failover).
+  `{maglev,ring_hash,round_robin,least_request,random}/*_lb.cc` + `common/hash.cc`
+  (murmurHash2), so Envoy's own priority selection, panic threshold,
+  healthy/degraded partitioning, locality, weight normalization, the maglev/ketama
+  tables, and the EDF scheduler all run for real. The `shim/` headers shadow only
+  the leaf interfaces (`upstream.h` Host/HostSet/PrioritySet, stats/runtime/time,
+  the request-hashing HTTP path); `types.h`/`phantom.h`/`edf_scheduler.h` stay
+  real. No protobuf runtime; `xxhash` 0.8.3 vendored.
+- All five policies end-to-end: `src/lb.cpp` builds a concrete `PrioritySet`/
+  `HostSet` from `WasmHostSet` (shared `buildPrioritySet` + `LbInstanceBase`) and
+  drives the real Envoy LB. The consistent-hash policies are
+  `ThreadAwareLoadBalancers` (`ThreadAwareLbInstance`: `initialize()` ->
+  `factory()->create()` -> `chooseHost()`); the EDF/random policies are
+  `ZoneAwareLoadBalancers` constructed directly and picked via
+  `chooseHost(context)` (`ZoneAwareLbInstance`). ABI factories:
+  `createMaglevLb`, `createRingHashLb(minRing,maxRing,hashFunction,useHostname,..)`,
+  `createRoundRobinLb`,
+  `createLeastRequestLb(choiceCount,activeRequestBias,selectionMethod,..)`,
+  `createRandomLb`; `updateHosts` now carries `activeRequests` as a 7th vector
+  (feeds the lifted base's `host.stats().rq_active_` for least_request).
+  `bindings/index.ts` wraps them as the protocol `LbModule`.
+- Golden node tests (`pnpm --filter @elbsim/wasm-lb test`): `test/maglev.mjs`
+  (slot-for-slot vs the `lb_core` oracle plus distribution/determinism/disruption
+  and real-base health/panic/priority), `test/ring_hash.mjs` (consistent routing,
+  weight-proportional ownership, minimal disruption on host removal, health/panic,
+  xx_hash vs murmur_hash_2), `test/edf.mjs` (round_robin weighted rotation,
+  least_request FULL_SCAN/N_CHOICES off live rq_active_, random spread, panic).
+- inspect() serializes every `LbStructure` kind: maglev (table probed via the
+  public pick path), ring_hash (`RingHashInspection`, ownership sampled from the
+  real ring at a bounded grid), round_robin/least_request (`EdfInspection`, the
+  serving schedule peeked from a sibling LB with real weights), random
+  (`StatelessInspection`). The internal ring/EDF structures are private to the
+  lifted source, so inspect() reconstructs them through the public pick path.
+- Integration: the real `LbModule` drives the real `SimEngine` for every policy,
+  verified by `packages/sim-core/src/engine.wasm.test.ts` (valid routing, seed
+  determinism, inspection structure). The engine still defaults to `mockLbModule`
+  when no module is injected, so sim-core stays decoupled from wasm-lb at runtime;
+  the real module is composed in (await `loadLbModule()`) at the worker layer.
 
-Remaining:
-- ring_hash (derives from the lifted base; compile `ring_hash_lb.cc`; `inspect` ->
-  `RingHashInspection`; honor xx_hash/murmur_hash_2).
-- EDF-base policies round_robin, least_request, random: the base is already lifted;
-  add the `EdfLoadBalancerBase` subclass (same `load_balancer_impl.cc`, already
-  compiled) + their config protos (currently empty stubs) + the EDF scheduler.
-  `inspect` -> `EdfInspection`. least_request reads `host.stats().rq_active_` in
-  the lifted base; wire `WasmHost.activeRequests` through `updateHosts` (now 0).
+Remaining (optional polish, not blocking):
 - Locality buckets: hosts land in one locality per priority today (region/zone are
   passed but not bucketed); wire real `localityWeights()` for zone-aware scenarios.
-- Integration: replace `mockLbModule` with the real `LbModule` in the engine, and
-  serialize maglev/ring/edf into `inspect()` for the inspector.
-Mocks until done: the kernel uses `mockLbModule` for the not-yet-lifted policies.
+- Slow start: `TimeSourceImpl` is a fixed clock and the slow-start window is left
+  at 0 (disabled); wiring the kernel's virtual clock would enable it.
 
 ### Track B: simulation kernel (DONE)
 `sim-core` is the full DES. Key files: `engine.ts` (the lifecycle),
@@ -138,19 +156,19 @@ replay; see Design decisions) once wired to the real worker.
 
 ## Next step
 
-Two parallel fronts:
-- Finish Track A: lift ring_hash from `third_party/envoy/source/extensions/
-  load_balancing_policies/ring_hash/ring_hash_lb.{h,cc}` (it derives from the
-  already-lifted base, so expect a `ring_hash.pb.h` config shim, compiling
-  `ring_hash_lb.cc`, a `RingHashLb` Embind class beside `MaglevLb`, a ring_hash
-  case in `bindings/index.ts`, and a golden test mirroring `test/maglev.mjs`).
-  Then the EDF policies (round_robin/least_request/random).
-- Real-data integration: (a) replace `mockLbModule` with the real Wasm `LbModule`
-  in `sim-core` and serialize the live structures into `inspect()`; (b) swap
-  `web/`'s synthetic worker for the real `SimController` at
-  `web/src/worker/client.ts` (one URL); (c) feed `AnalyticalViews` from real
-  worker telemetry (gauge frames -> topology, `queryWindow` -> analysis,
-  `requestInspection` -> inspection) instead of the `@/synthetic` generators.
+Track A's LB lift is done (all five policies, golden-tested, driving the real
+engine). The remaining front is the web real-data integration:
+- (a) compose the real Wasm `LbModule` into a kernel worker that hosts
+  `SimController` (await `loadLbModule()` in the worker, pass it as
+  `SimControllerOptions.lbModule`); sim-core and the engine already accept it and
+  the integration is covered by `engine.wasm.test.ts`.
+- (b) swap `web/`'s synthetic worker for that real `SimController` worker at
+  `web/src/worker/client.ts` (one URL).
+- (c) feed `AnalyticalViews` from real worker telemetry (gauge frames -> topology,
+  `queryWindow` -> analysis, `requestInspection` -> inspection) instead of the
+  `@/synthetic` generators.
+Optional Track A polish (not blocking): zone-aware locality bucketing and slow
+start (see Track A "Remaining").
 
 ## Integration (after tracks)
 

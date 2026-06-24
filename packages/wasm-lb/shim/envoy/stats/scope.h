@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+#include "envoy/common/pure.h" // PURE; ring_hash_lb.cc reaches scope.h before it transitively
+
 namespace Envoy {
 namespace Stats {
 

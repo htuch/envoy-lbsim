@@ -43,6 +43,7 @@ interface EmbindLb {
     priorities: EmbindVector<number>,
     regions: EmbindVector<string>,
     zones: EmbindVector<string>,
+    activeRequests: EmbindVector<number>,
   ): void;
   chooseHost(hash: number): number;
   inspect(): LbStructure;
@@ -61,7 +62,40 @@ export interface WasmLbModule {
     overprovisioningFactor: number,
     seed: number,
   ): EmbindLb;
+  createRingHashLb(
+    minimumRingSize: number,
+    maximumRingSize: number,
+    hashFunction: number,
+    useHostname: boolean,
+    healthyPanicThreshold: number,
+    overprovisioningFactor: number,
+    seed: number,
+  ): EmbindLb;
+  createRoundRobinLb(
+    healthyPanicThreshold: number,
+    overprovisioningFactor: number,
+    seed: number,
+  ): EmbindLb;
+  createLeastRequestLb(
+    choiceCount: number,
+    activeRequestBias: number,
+    selectionMethod: number,
+    healthyPanicThreshold: number,
+    overprovisioningFactor: number,
+    seed: number,
+  ): EmbindLb;
+  createRandomLb(
+    healthyPanicThreshold: number,
+    overprovisioningFactor: number,
+    seed: number,
+  ): EmbindLb;
 }
+
+/** Embind enum ordinals for the ring_hash hash function (proto HashFunction). */
+const RING_HASH_FUNCTION = { xx_hash: 1, murmur_hash_2: 2 } as const;
+
+/** Embind enum ordinals for the least_request selection method (proto SelectionMethod). */
+const SELECTION_METHOD = { n_choices: 0, full_scan: 1 } as const;
 
 type WasmLbModuleFactory = () => Promise<WasmLbModule>;
 
@@ -81,9 +115,11 @@ function adapt(mod: WasmLbModule, lb: EmbindLb): LbInstance {
       const priorities = new mod.VectorInt();
       const regions = new mod.VectorString();
       const zones = new mod.VectorString();
+      const activeRequests = new mod.VectorInt();
       try {
         // Pass the full set; the real Envoy base partitions by health/priority and
-        // applies panic/locality itself.
+        // applies panic/locality itself. activeRequests feeds the lifted base's
+        // host.stats().rq_active_, which least_request reads at pick time.
         for (const h of set.hosts) {
           backends.push_back(h.backend);
           weights.push_back(h.weight);
@@ -91,10 +127,12 @@ function adapt(mod: WasmLbModule, lb: EmbindLb): LbInstance {
           priorities.push_back(h.priority);
           regions.push_back(h.region);
           zones.push_back(h.zone);
+          activeRequests.push_back(h.activeRequests);
         }
-        lb.updateHosts(backends, weights, healths, priorities, regions, zones);
+        lb.updateHosts(backends, weights, healths, priorities, regions, zones, activeRequests);
       } finally {
-        for (const v of [backends, weights, healths, priorities, regions, zones]) v.delete();
+        for (const v of [backends, weights, healths, priorities, regions, zones, activeRequests])
+          v.delete();
       }
     },
     chooseHost(ctx: WasmLbContext): BackendId {
@@ -145,10 +183,55 @@ export async function loadLbModule(): Promise<LbModule> {
               seed,
             ),
           );
-        default:
-          // ring_hash and the EDF-base policies (round_robin/least_request/random)
-          // are not lifted yet; the kernel uses its mock for those until they land.
-          throw new Error(`Wasm LB policy '${policy.kind}' is not yet implemented`);
+        case 'ring_hash':
+          return adapt(
+            mod,
+            mod.createRingHashLb(
+              policy.minimumRingSize,
+              policy.maximumRingSize,
+              RING_HASH_FUNCTION[policy.hashFunction],
+              policy.useHostnameForHashing,
+              common.healthyPanicThresholdPercent,
+              common.overprovisioningFactor,
+              seed,
+            ),
+          );
+        case 'round_robin':
+          return adapt(
+            mod,
+            mod.createRoundRobinLb(
+              common.healthyPanicThresholdPercent,
+              common.overprovisioningFactor,
+              seed,
+            ),
+          );
+        case 'least_request':
+          return adapt(
+            mod,
+            mod.createLeastRequestLb(
+              policy.choiceCount,
+              policy.activeRequestBias,
+              SELECTION_METHOD[policy.selectionMethod],
+              common.healthyPanicThresholdPercent,
+              common.overprovisioningFactor,
+              seed,
+            ),
+          );
+        case 'random':
+          return adapt(
+            mod,
+            mod.createRandomLb(
+              common.healthyPanicThresholdPercent,
+              common.overprovisioningFactor,
+              seed,
+            ),
+          );
+        default: {
+          // Exhaustive: every EnvoyLbPolicy kind is lifted. If a new kind is added
+          // to the config, this fails to type-check until it is handled here.
+          const unhandled: never = policy;
+          throw new Error(`unhandled Wasm LB policy '${(unhandled as { kind: string }).kind}'`);
+        }
       }
     },
   };

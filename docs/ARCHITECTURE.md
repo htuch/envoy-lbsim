@@ -155,11 +155,17 @@ The web app additionally has a Playwright E2E suite (`web/e2e/`, run with
 canvas rendering, the live brush highlight, and SharedArrayBuffer cross-origin
 isolation. Vitest is scoped to `src/**/*.test.*` so it ignores the E2E specs.
 The Wasm module builds with `em++` (needs an activated emsdk) and is verified by
-golden node tests: `test/maglev.mjs` (run by `pnpm run wasm:test`) matches the
-`lb_core` oracle slot-for-slot and checks the lifted real base (health
-filtering, panic mode, priority failover), and `test/smoke.mjs` is an EDF
-weighted-distribution smoke. CI builds the module in a dedicated job (emsdk
-action) and runs the smoke.
+golden node tests (run by `pnpm --filter @elbsim/wasm-lb test`): `test/maglev.mjs`
+matches the `lb_core` oracle slot-for-slot and checks the lifted real base (health
+filtering, panic mode, priority failover); `test/ring_hash.mjs` checks the real
+ketama ring (consistent routing, weight-proportional ownership, minimal disruption,
+xx_hash vs murmur_hash_2); `test/edf.mjs` checks round_robin/least_request/random
+(weighted rotation, active-request preference off the live `rq_active_` stat,
+uniform spread). `test/smoke.mjs` remains the minimal EDF toolchain proof.
+Separately, `packages/sim-core/src/engine.wasm.test.ts` drives the real `SimEngine`
+with the real Wasm `LbModule` for every policy (an integration test that skips when
+the artifact is not built). CI builds the module in a dedicated job (emsdk action)
+and runs the golden tests.
 
 ## Visual design principle
 

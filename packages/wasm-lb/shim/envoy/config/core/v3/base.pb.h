@@ -41,6 +41,9 @@ class RuntimeDouble {
 public:
   const std::string& runtime_key() const { return runtime_key_; }
   double default_value() const { return default_value_; }
+  // The harness drives the value (e.g. least_request's active_request_bias) from
+  // @elbsim/config; with no runtime layer the default is the effective value.
+  void set_default_value(double v) { default_value_ = v; }
 
 private:
   std::string runtime_key_;

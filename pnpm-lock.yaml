@@ -44,6 +44,13 @@ importers:
       '@elbsim/protocol':
         specifier: workspace:*
         version: link:../protocol
+    devDependencies:
+      '@elbsim/wasm-lb':
+        specifier: workspace:*
+        version: link:../wasm-lb
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
 
   packages/wasm-lb:
     dependencies:

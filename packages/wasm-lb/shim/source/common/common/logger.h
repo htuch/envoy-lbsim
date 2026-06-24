@@ -1,6 +1,10 @@
 #pragma once
 // Shim of source/common/common/logger.h. Provides the Logger::Loggable<Id> base
 #include "fmt/core.h"
+// ring_hash_lb.cc calls absl::StrCat and relies on the transitive include the
+// real (spdlog/fmt) logger.h provides; restore it here so the reduced graph keeps
+// it visible (maglev never used StrCat, so this surfaced only with ring_hash).
+#include "absl/strings/str_cat.h"
 // and ENVOY_LOG* macros as no-ops so real Envoy code that logs compiles and runs
 // without spdlog. The Id enum lists the ids referenced by lifted code; extend as
 // more files are pulled in.

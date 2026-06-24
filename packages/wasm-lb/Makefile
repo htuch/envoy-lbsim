@@ -37,10 +37,17 @@ DEFINES  := -DXXH_INLINE_ALL
 # shimmed, so Envoy's real priority/panic/locality/weight logic runs; the shim/
 # headers shadow only its leaf interfaces. See docs/STATUS.md Track A.
 LB_DIR   := $(ENVOY)/source/extensions/load_balancing_policies
+# hash.cc carries MurmurHash::murmurHash2 (ring_hash's non-xxHash path); xxHash64
+# is header-inline in hash.h, so maglev alone did not need it.
 ENVOY_LB := $(LB_DIR)/common/load_balancer_impl.cc \
             $(LB_DIR)/common/thread_aware_lb_impl.cc \
             $(LB_DIR)/common/locality_wrr.cc \
-            $(LB_DIR)/maglev/maglev_lb.cc
+            $(LB_DIR)/maglev/maglev_lb.cc \
+            $(LB_DIR)/ring_hash/ring_hash_lb.cc \
+            $(LB_DIR)/round_robin/round_robin_lb.cc \
+            $(LB_DIR)/least_request/least_request_lb.cc \
+            $(LB_DIR)/random/random_lb.cc \
+            $(ENVOY)/source/common/common/hash.cc
 
 SHIM_HDRS := $(shell find shim -name '*.h') vendor/xxhash.h
 

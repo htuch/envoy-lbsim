@@ -14,5 +14,9 @@
   "dependencies": {
     "@elbsim/config": "workspace:*",
     "@elbsim/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@elbsim/wasm-lb": "workspace:*",
+    "@types/node": "^24.13.2"
   }
 }

@@ -49,6 +49,7 @@ function buildTable(backends, weights, tableSize, opts = {}) {
   const pv = new mod.VectorInt();
   const regions = new mod.VectorString();
   const zones = new mod.VectorString();
+  const av = new mod.VectorInt();
   for (let i = 0; i < backends.length; i++) {
     bv.push_back(backends[i]);
     wv.push_back(weights[i]);
@@ -56,9 +57,10 @@ function buildTable(backends, weights, tableSize, opts = {}) {
     pv.push_back(priorities[i]);
     regions.push_back('');
     zones.push_back('');
+    av.push_back(0);
   }
-  lb.updateHosts(bv, wv, hv, pv, regions, zones);
-  for (const v of [bv, wv, hv, pv, regions, zones]) v.delete();
+  lb.updateHosts(bv, wv, hv, pv, regions, zones, av);
+  for (const v of [bv, wv, hv, pv, regions, zones, av]) v.delete();
   const structure = lb.inspect();
   const table = structure.table;
   lb.delete();

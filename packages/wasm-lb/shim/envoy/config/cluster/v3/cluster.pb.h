@@ -5,6 +5,7 @@
 // calls exist; field-backed state is unused in our harness (the kernel supplies
 // resolved hosts and the policy knobs come from @elbsim/config), so these return
 // empty defaults. See ARCHITECTURE.md decision #2.
+#include "envoy/extensions/load_balancing_policies/common/v3/common.pb.h"
 #include "envoy/type/v3/percent.pb.h"
 #include "google/protobuf/wrappers.h"
 
@@ -65,6 +66,43 @@ public:
     bool has_table_size() const { return false; }
     const google::protobuf::UInt64Value& table_size() const {
       static const google::protobuf::UInt64Value v;
+      return v;
+    }
+  };
+
+  // Legacy in-Cluster ring-hash config (superseded by the typed extension proto).
+  // Read only by TypedRingHashLbConfig's legacy ctor, which our harness never
+  // invokes (config comes from @elbsim/config via the Embind ctor), so the
+  // accessors return inert defaults; they exist to compile ring_hash_lb.cc.
+  class RingHashLbConfig {
+  public:
+    enum HashFunction {
+      XX_HASH = 0,
+      MURMUR_HASH_2 = 1,
+    };
+    bool has_minimum_ring_size() const { return false; }
+    const google::protobuf::UInt64Value& minimum_ring_size() const {
+      static const google::protobuf::UInt64Value v;
+      return v;
+    }
+    bool has_maximum_ring_size() const { return false; }
+    const google::protobuf::UInt64Value& maximum_ring_size() const {
+      static const google::protobuf::UInt64Value v;
+      return v;
+    }
+    HashFunction hash_function() const { return XX_HASH; }
+  };
+
+  // Legacy in-Cluster round-robin config (superseded by the typed extension proto).
+  // Read only by TypedRoundRobinLbConfig's legacy ctor (convertSlowStartConfigTo),
+  // which our harness never invokes; the accessors return inert defaults and exist
+  // to compile round_robin_lb.cc. slow_start_config() reuses the common message.
+  class RoundRobinLbConfig {
+  public:
+    using SlowStartConfig = envoy::extensions::load_balancing_policies::common::v3::SlowStartConfig;
+    bool has_slow_start_config() const { return false; }
+    const SlowStartConfig& slow_start_config() const {
+      static const SlowStartConfig v;
       return v;
     }
   };
