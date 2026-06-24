@@ -43,6 +43,48 @@ class ManualTicker implements Ticker {
   }
 }
 
+/** Factory for the manual ticker (matches brief's manualTicker() call style). */
+function manualTicker(): ManualTicker {
+  return new ManualTicker();
+}
+
+/**
+ * A config that produces many completions in a short window (useful for
+ * latency-sample tests where we need a good-sized cohort).
+ */
+function busyConfig(): SimConfig {
+  return makeConfig({
+    time: { durationMs: 2000, sampleIntervalMs: 10 },
+    clients: {
+      count: 10,
+      arrival: { kind: 'periodic', ratePerSec: 500 },
+      requestKey: { kind: 'uniform', n: 8 },
+      lb: { kind: 'round_robin' },
+    },
+    envoys: { count: 2, policy: { kind: 'round_robin' }, queue: { maxConcurrentRequests: 1000 } },
+    backends: { count: 4, defaults: { capacity: 1000, latency: { kind: 'constant', value: 5 } } },
+  });
+}
+
+/**
+ * A config that produces more than 4000 completions in the full window
+ * (needed to exercise the SAMPLE_CAP downsampling path).
+ */
+function highVolumeConfig(): SimConfig {
+  return makeConfig({
+    seed: 42,
+    time: { durationMs: 10000, sampleIntervalMs: 100 },
+    clients: {
+      count: 20,
+      arrival: { kind: 'periodic', ratePerSec: 1000 },
+      requestKey: { kind: 'uniform', n: 8 },
+      lb: { kind: 'round_robin' },
+    },
+    envoys: { count: 4, policy: { kind: 'round_robin' }, queue: { maxConcurrentRequests: 5000 } },
+    backends: { count: 8, defaults: { capacity: 5000, latency: { kind: 'constant', value: 2 } } },
+  });
+}
+
 describe('SimController telemetry handles', () => {
   it('loadConfig returns one shared channel per entity kind with correct layout', async () => {
     const c = new SimController();
@@ -216,5 +258,28 @@ describe('SimController cold-path queries', () => {
     expect(view.t).toBe(50);
     expect(view.hosts.length).toBe(3);
     expect(view.policy).toBe('round_robin');
+  });
+
+  it('queryWindowLatencies returns ascending samples agreeing with queryWindow percentiles', async () => {
+    const c = new SimController({ ticker: manualTicker() });
+    await c.loadConfig(busyConfig());
+    const q = { fromMs: 0, toMs: 2000 };
+    const agg = await c.queryWindow(q);
+    const s = await c.queryWindowLatencies(q);
+    expect(s.fromMs).toBe(0);
+    expect(s.latencies.every((v, i, a) => i === 0 || (a[i - 1] as number) <= v)).toBe(true);
+    expect(s.latencies.length).toBeGreaterThan(0);
+    expect(s.latencies.length).toBeLessThanOrEqual(4000);
+    // p50 from the samples is within rounding of the aggregate's p50
+    const p50 = s.latencies[Math.floor(0.5 * (s.latencies.length - 1))] as number;
+    expect(Math.abs(p50 - agg.latencyP50)).toBeLessThan(agg.latencyP50 * 0.2 + 1);
+  });
+
+  it('queryWindowLatencies caps and flags large cohorts', async () => {
+    const c = new SimController({ ticker: manualTicker() });
+    await c.loadConfig(highVolumeConfig());
+    const s = await c.queryWindowLatencies({ fromMs: 0, toMs: 1e9 });
+    expect(s.latencies.length).toBe(4000);
+    expect(s.capped).toBe(true);
   });
 });

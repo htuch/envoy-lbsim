@@ -11,6 +11,7 @@ import {
   ringByteLengths,
   type SharedTelemetry,
   type SimWorkerApi,
+  type WindowLatencySamples,
 } from '@elbsim/protocol';
 import { ringSpecs, SimEngine } from './engine';
 
@@ -177,12 +178,10 @@ export class SimController implements SimWorkerApi {
     // emissions complete a few ms later.
     const events = this.fullRun();
     const cohort = new Set<number>();
-    const completedLatency = new Map<number, number>();
     const terminal = new Map<number, RequestEvent['phase']>();
     for (const e of events) {
       if (e.phase === 'emitted' && e.t >= q.fromMs && e.t <= q.toMs) cohort.add(e.req);
       if (e.phase === 'completed') {
-        completedLatency.set(e.req, e.latencyMs);
         terminal.set(e.req, 'completed');
       } else if (e.phase === 'timed_out' || e.phase === 'rejected') {
         terminal.set(e.req, e.phase);
@@ -192,12 +191,10 @@ export class SimController implements SimWorkerApi {
     let completed = 0;
     let timedOut = 0;
     let rejected = 0;
-    const latencies: number[] = [];
     for (const req of cohort) {
       switch (terminal.get(req)) {
         case 'completed':
           completed++;
-          latencies.push(completedLatency.get(req) as number);
           break;
         case 'timed_out':
           timedOut++;
@@ -207,7 +204,7 @@ export class SimController implements SimWorkerApi {
           break;
       }
     }
-    latencies.sort((a, b) => a - b);
+    const latencies = this.cohortLatencies(q);
     const totalRequests = cohort.size;
     return {
       fromMs: q.fromMs,
@@ -223,6 +220,21 @@ export class SimController implements SimWorkerApi {
     };
   }
 
+  async queryWindowLatencies(q: { fromMs: number; toMs: number }): Promise<WindowLatencySamples> {
+    const sorted = this.cohortLatencies(q);
+    const cap = SimController.SAMPLE_CAP;
+    let latencies = sorted;
+    let capped = false;
+    if (sorted.length > cap) {
+      // Deterministic uniform stride downsample; keeps shape and determinism.
+      latencies = new Array(cap);
+      for (let i = 0; i < cap; i++)
+        latencies[i] = sorted[Math.floor((i * sorted.length) / cap)] as number;
+      capped = true;
+    }
+    return { fromMs: q.fromMs, toMs: q.toMs, latencies, capped };
+  }
+
   async requestInspection(envoy: EnvoyId, tMs: number): Promise<LbInspection> {
     // A throwaway replay to the requested instant; never touches live state.
     const engine = this.buildEngine();
@@ -231,6 +243,26 @@ export class SimController implements SimWorkerApi {
   }
 
   // --- internals ---------------------------------------------------------
+
+  private static readonly SAMPLE_CAP = 4000;
+
+  /** Ascending completed-request latencies for requests emitted in the window. */
+  private cohortLatencies(q: { fromMs: number; toMs: number }): number[] {
+    const events = this.fullRun();
+    const cohort = new Set<number>();
+    const completedLatency = new Map<number, number>();
+    for (const e of events) {
+      if (e.phase === 'emitted' && e.t >= q.fromMs && e.t <= q.toMs) cohort.add(e.req);
+      else if (e.phase === 'completed') completedLatency.set(e.req, e.latencyMs);
+    }
+    const latencies: number[] = [];
+    for (const req of cohort) {
+      const l = completedLatency.get(req);
+      if (l !== undefined) latencies.push(l);
+    }
+    latencies.sort((a, b) => a - b);
+    return latencies;
+  }
 
   private advance(deltaVirtual: number): void {
     const target = Math.min(this.horizon, this.vt + deltaVirtual);
