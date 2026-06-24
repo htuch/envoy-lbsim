@@ -26,6 +26,8 @@ time by a TypeScript discrete-event kernel. See docs/PRD.md for the full why.
 
 ## Commands (HOW)
 
+- Convenience targets: `make help` (thin wrappers over the commands below).
+
 - Install: `pnpm install`
 - Dev server: `pnpm --filter web dev`
 - Lint / format: `pnpm exec biome check --write .` (CI: `pnpm exec biome ci .`)
