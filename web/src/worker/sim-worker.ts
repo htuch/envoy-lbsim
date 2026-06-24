@@ -1,11 +1,9 @@
-import { mockLbModule, SimController } from '@elbsim/sim-core';
+import { SimController } from '@elbsim/sim-core';
 import { loadLbModule } from '@elbsim/wasm-lb';
 import * as Comlink from 'comlink';
-import { makeCompositeLbModule } from './composite-lb';
 
 /* c8 ignore start -- Wasm-boundary entrypoint; requires a built artifact and a
    real Worker context, neither of which is available under jsdom/vitest. The
-   composite routing logic is unit-tested in composite-lb.test.ts; the
    SimController is tested in controller.test.ts. */
 
 // Expose the controller eagerly -- before the Wasm loads -- so that Comlink
@@ -16,10 +14,10 @@ import { makeCompositeLbModule } from './composite-lb';
 // If the main thread sends loadConfig before the worker calls Comlink.expose,
 // the message is lost and the Promise never resolves.
 //
-// The fix: pass the lbModule as a Promise. SimController.loadConfig awaits it
-// on the first call, so the real Maglev module is used as soon as it is ready.
-const lbModulePromise = loadLbModule().then((real) => makeCompositeLbModule(real, mockLbModule));
-
-Comlink.expose(new SimController({ lbModule: lbModulePromise }));
+// The fix: pass the lbModule as a Promise. SimController.loadConfig awaits it on
+// the first call, so the real Envoy LB is used as soon as it is ready. All five
+// policies are lifted to Wasm, so the real module handles every policy; the mock
+// LB remains only as a sim-core test fixture.
+Comlink.expose(new SimController({ lbModule: loadLbModule() }));
 
 /* c8 ignore stop */
