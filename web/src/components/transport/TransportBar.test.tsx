@@ -1,6 +1,6 @@
 import { defaultSimConfig } from '@elbsim/config';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSimStore } from '@/store/sim-store';
 import { MockSimRunner } from '@/worker/runner';
 import { TransportBar } from './TransportBar';
@@ -68,5 +68,43 @@ describe('TransportBar', () => {
   it('hides the reset-zoom control when no window is selected', () => {
     render(<TransportBar />);
     expect(screen.queryByLabelText('Reset zoom')).not.toBeInTheDocument();
+  });
+
+  it('speed selector renders all speeds and selecting 2x calls setSpeed(2)', async () => {
+    const spy = vi.spyOn(useSimStore.getState(), 'setSpeed');
+    render(<TransportBar />);
+    const speedSelect = screen.getByLabelText('Playback speed');
+    // All six speed options are present.
+    expect(speedSelect).toBeInTheDocument();
+    const options = Array.from((speedSelect as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).toEqual(['0.25', '0.5', '1', '2', '4', '8']);
+    // Selecting 2x dispatches setSpeed(2).
+    fireEvent.change(speedSelect, { target: { value: '2' } });
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(2));
+  });
+
+  it('overlays a window band on the seek track when selection is set', () => {
+    useSimStore.getState().setSelection({ fromMs: 20_000, toMs: 60_000 });
+    render(<TransportBar />);
+    // The band element must be present.
+    const band = document.querySelector('[data-window-band]');
+    expect(band).toBeInTheDocument();
+    // Band spans 20000..60000 over 100000ms total => left 20%, width 40%.
+    // We verify the inline style contains these values.
+    const style = (band as HTMLElement).getAttribute('style') ?? '';
+    expect(style).toContain('20%');
+    expect(style).toContain('40%');
+  });
+
+  it('shows no window band when selection is null', () => {
+    render(<TransportBar />);
+    expect(document.querySelector('[data-window-band]')).not.toBeInTheDocument();
+  });
+});
+
+describe('boot config maglev default', () => {
+  it('defaultSimConfig boots with policy.kind === maglev', () => {
+    const cfg = defaultSimConfig();
+    expect(cfg.envoys.policy.kind).toBe('maglev');
   });
 });

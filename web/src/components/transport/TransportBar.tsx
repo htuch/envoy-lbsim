@@ -74,17 +74,32 @@ export function TransportBar(): React.JSX.Element {
         </Button>
       </div>
 
-      <input
-        type="range"
-        aria-label="Seek"
-        className="h-1 min-w-0 flex-1 accent-primary"
-        min={0}
-        max={duration}
-        step={sampleInterval}
-        value={Math.min(status.virtualTimeMs, duration)}
-        disabled={!ready}
-        onChange={(e) => void seek(e.target.valueAsNumber)}
-      />
+      {/* Seek scrubber with an optional committed-window band overlay. The band
+          marks the brushed window over [0, duration]; pointer-events-none keeps
+          the slider beneath it fully interactive. */}
+      <div className="relative flex min-w-0 flex-1 items-center">
+        {selection && (
+          <div
+            data-window-band
+            className="pointer-events-none absolute top-1/2 h-1 -translate-y-1/2 rounded-sm bg-primary/30 ring-1 ring-primary/60"
+            style={{
+              left: `${(selection.fromMs / duration) * 100}%`,
+              width: `${((selection.toMs - selection.fromMs) / duration) * 100}%`,
+            }}
+          />
+        )}
+        <input
+          type="range"
+          aria-label="Seek"
+          className="h-1 min-w-0 flex-1 accent-primary"
+          min={0}
+          max={duration}
+          step={sampleInterval}
+          value={Math.min(status.virtualTimeMs, duration)}
+          disabled={!ready}
+          onChange={(e) => void seek(e.target.valueAsNumber)}
+        />
+      </div>
 
       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
         {fmtSeconds(status.virtualTimeMs)} / {fmtSeconds(duration)}
