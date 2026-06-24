@@ -130,6 +130,9 @@ export function normalizeStructure(raw: unknown): LbStructure {
 // The loaded Embind module, shared by all instances (one Wasm module, many LBs).
 let wasmModule: WasmLbModule | undefined;
 
+/* c8 ignore start -- adapt and loadLbModule require a live Wasm artifact;
+   covered by the Makefile golden tests (test:golden / test:wasm). */
+
 /** Wrap an Embind LB handle in the protocol's {@link LbInstance}. */
 function adapt(mod: WasmLbModule, lb: EmbindLb): LbInstance {
   return {
@@ -261,3 +264,5 @@ export async function loadLbModule(): Promise<LbModule> {
     },
   };
 }
+
+/* c8 ignore stop */
