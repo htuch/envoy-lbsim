@@ -7,7 +7,8 @@ Living document. `/new-session` reads it to start; `/wrap-session` updates it.
 Phase 0 (scaffolding) is complete. The repo builds, type checks, lints, and
 tests green, and the hardest risk is retired: real Envoy v1.36.0 EDF compiles to
 Wasm and runs. Next work is the four parallel tracks below; each is gated only on
-the Phase 0 interfaces and mocks the others until they land.
+the Phase 0 interfaces and mocks the others until they land. See the request
+lifecycle walkthrough rationale captured under "Design decisions" below.
 
 ## Phase 0: scaffolding and interfaces (DONE)
 
@@ -35,7 +36,11 @@ Lift the real Envoy policies to Wasm behind the `LbInstance` ABI.
   least_request, random (EDF/host-set policies). Provide proto-shaped config
   structs so the real `.cc` compiles unmodified.
 - Implement `createLb`/`updateHosts`/`chooseHost` and `inspect` (serialize EDF
-  heap, Maglev table, hash ring into `LbInspection`).
+  heap, Maglev table, hash ring into `LbInspection`). `inspect` only serializes
+  the live structures; addressing a past instant is the worker's job via
+  deterministic replay (see Design decisions).
+- least_request needs live active-request counts at pick time (its weight is a
+  function of them); decide how those cross the ABI (see Design decisions).
 - Golden tests vs the `lb_core` extract-track oracle for identical inputs.
 Mocks until done: none (this is the real thing the mock stands in for).
 
@@ -44,8 +49,14 @@ Flesh out `sim-core` into the full DES.
 - Open-loop client generators (Poisson/periodic/uniform; Zipf/uniform keys);
   client-side LB to Envoys; network-link delays; Envoy admission queues; backend
   capacity/latency/queue/health/locality models; timeouts and goodput.
-- Emit the `RequestEvent` stream and write gauge frames into the ring buffers.
+- Emit the `RequestEvent` stream and write gauge frames into the ring buffers on
+  the `sampleIntervalMs` tick.
 - Host the LB behind the Wasm ABI (use `mockLbModule` until Track A lands).
+- Hot-path latency timeline: decide the mechanism here (per-sample-interval
+  percentiles vs a streaming/decaying histogram per entity) and feed it into
+  appended latency gauge columns. The snapshot schema is append-compatible by
+  design (see `packages/protocol/src/snapshots.ts`). Cold-path window percentiles
+  are already specified via `queryWindow` -> `WindowAggregate`.
 Mocks until done: the frontend consumes recorded/synthetic streams.
 
 ### Track C: frontend shell and hot path
@@ -57,9 +68,11 @@ Mocks until done: drive from a synthetic telemetry stream behind `protocol`.
 
 ### Track D: topology, cold path, inspector
 - `@xyflow/react` + dagre topology graph with live status; queue visualizations.
-- Observable Plot analytical charts over a committed brushed window.
+- Observable Plot analytical charts over a committed brushed window (latency
+  CDF/histogram, goodput breakdown) from `queryWindow` aggregates.
 - The LB data-structure inspector rendering `LbInspection` (EDF heap, Maglev
-  table, hash ring).
+  table, hash ring). Inspecting Envoy E at time T calls `requestInspection`,
+  which uses deterministic replay to reach T (see Design decisions).
 Mocks until done: synthetic `LbInspection` and window aggregates.
 
 ## Integration (after tracks)
@@ -67,6 +80,32 @@ Mocks until done: synthetic `LbInspection` and window aggregates.
 Wire real Wasm into the kernel, the real kernel into the UI, and real inspection
 payloads into the inspector. Add Playwright E2E around the core user journeys
 (assemble scenario, run, brush a window, inspect an Envoy).
+
+## Design decisions
+
+Recorded (settled for now):
+
+- LB inspection is recorded by on-demand deterministic replay, not stored
+  snapshots. To inspect Envoy E at virtual time T, replay the deterministic run
+  to T and call `inspect()` on the live Wasm instance; when paused at the
+  cursor, that is just `inspect()` with no replay. This is chosen for
+  scalability and simplicity: EDF state mutates every pick and a 65537-slot
+  Maglev table is too heavy to snapshot continuously. Optimization (periodic
+  Wasm-heap checkpoints to bound replay cost on long runs) is deferred until
+  replay latency is shown to hurt.
+- Latency over a brushed window (cold path) comes from scanning the
+  `RequestEvent` stream via `SimWorkerApi.queryWindow` -> `WindowAggregate`
+  (`latencyP50/P90/P99`, goodput, success/timeout/rejected). Already specified
+  in the interface.
+
+Open (to resolve in the named track):
+
+- Hot-path (live) latency timeline mechanism: per-sample-interval percentiles vs
+  a streaming/decaying histogram per entity, written to appended latency gauge
+  columns. Resolve in Track B.
+- least_request active-request-count transport across the Wasm ABI (extend
+  `WasmLbContext`/`WasmHost` per pick vs frequent `updateHosts`), since its
+  weight depends on live active counts. Resolve in Track A/B.
 
 ## Known follow-ups / decisions on the shelf
 
