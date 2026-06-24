@@ -60,12 +60,24 @@ class IntervalTicker implements Ticker {
 }
 
 export interface SimControllerOptions {
-  lbModule?: LbModule;
+  /**
+   * The LB module to use. Accepts either a resolved module or a Promise for
+   * one (so the controller can be exposed via Comlink before the Wasm loads).
+   * When a Promise is provided, `loadConfig` awaits it before running -- this
+   * avoids the module-worker timing hazard where messages sent before
+   * `Comlink.expose` are dropped by the browser.
+   */
+  lbModule?: LbModule | Promise<LbModule>;
   ticker?: Ticker;
 }
 
 export class SimController implements SimWorkerApi {
-  private readonly lbModule: LbModule | undefined;
+  /**
+   * The LB module, which may start as a Promise and is resolved on the first
+   * `loadConfig` call. After resolution it is stored as the concrete module so
+   * subsequent calls skip the await.
+   */
+  private lbModuleOrPromise: LbModule | Promise<LbModule> | undefined;
   private readonly ticker: Ticker;
 
   private config: SimConfig | undefined;
@@ -79,15 +91,26 @@ export class SimController implements SimWorkerApi {
   private interval = 0;
 
   constructor(opts: SimControllerOptions = {}) {
-    this.lbModule = opts.lbModule;
+    this.lbModuleOrPromise = opts.lbModule;
     this.ticker = opts.ticker ?? new IntervalTicker();
   }
 
   async loadConfig(config: SimConfig): Promise<SharedTelemetry> {
+    // Resolve a pending lbModule Promise exactly once, then store the concrete
+    // module. This lets the worker call Comlink.expose() before loadLbModule()
+    // resolves, avoiding the browser's module-worker message-drop hazard (a
+    // postMessage sent before Comlink.expose is called is not re-delivered).
+    if (this.lbModuleOrPromise instanceof Promise) {
+      this.lbModuleOrPromise = await this.lbModuleOrPromise;
+    }
     return this.loadConfigSync(config);
   }
 
-  /** Synchronous core of {@link loadConfig}, for in-process callers (CLI). */
+  /**
+   * Synchronous core of {@link loadConfig}, for in-process callers (CLI). The
+   * caller must pass a concrete (already-resolved) lbModule to the constructor;
+   * the Promise form is resolved by the async {@link loadConfig} wrapper.
+   */
   loadConfigSync(config: SimConfig): SharedTelemetry {
     this.ticker.stop();
     this.config = config;
@@ -276,7 +299,11 @@ export class SimController implements SimWorkerApi {
 
   private buildEngine(channels?: Record<EntityKind, GaugeRingBuffer>): SimEngine {
     const opts: { lbModule?: LbModule; channels?: Record<EntityKind, GaugeRingBuffer> } = {};
-    if (this.lbModule) opts.lbModule = this.lbModule;
+    // lbModuleOrPromise is always a resolved LbModule here: loadConfig() awaits
+    // any pending Promise before calling buildEngine().
+    if (this.lbModuleOrPromise && !(this.lbModuleOrPromise instanceof Promise)) {
+      opts.lbModule = this.lbModuleOrPromise;
+    }
     if (channels) opts.channels = channels;
     return new SimEngine(this.requireConfig(), opts);
   }

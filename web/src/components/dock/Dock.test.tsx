@@ -281,6 +281,14 @@ describe('Dock', () => {
     expect(loadInspectionSpy).not.toHaveBeenCalled();
   });
 
+  it('does not call loadInspection before the worker is ready', () => {
+    // Guard: calling requestInspection before loadConfig has run throws in the
+    // worker. The Dock must not call loadInspection while ready is false.
+    useSimStore.setState({ ready: false, selectedEnvoy: 0 });
+    render(<Dock />);
+    expect(loadInspectionSpy).not.toHaveBeenCalled();
+  });
+
   it('calls loadInspection when state transitions to paused', () => {
     useSimStore.setState({
       status: { state: 'running', virtualTimeMs: 500, speed: 1 },

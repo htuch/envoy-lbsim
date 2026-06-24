@@ -58,6 +58,7 @@ export function Dock(): React.JSX.Element {
   const windowAggregate = useSimStore((s) => s.windowAggregate);
   const windowSamples = useSimStore((s) => s.windowSamples);
   const windowLoading = useSimStore((s) => s.windowLoading);
+  const ready = useSimStore((s) => s.ready);
   const loadWindow = useSimStore((s) => s.loadWindow);
   const loadInspection = useSimStore((s) => s.loadInspection);
 
@@ -84,14 +85,18 @@ export function Dock(): React.JSX.Element {
 
   // --- Effect: selectedEnvoy change => focus Inspector + fetch inspection.
   // Skip tab focus on the initial mount (initial tab already derived from the
-  // store in useState). Also gate loadInspection on not running.
+  // store in useState). Also gate loadInspection on not running and on ready
+  // (the worker's loadConfig must have completed before requestInspection can
+  // be called; calling it before ready causes a "loadConfig has not been called"
+  // error in the worker and logs an unhandled rejection in the browser console).
   // Uses statusStateRef/virtualTimeMsRef to read the current status without
   // adding them to the dep array (doing so would re-fire on every tick).
   useEffect(() => {
     if (mounted.current) setTab('inspector');
+    if (!ready) return;
     if (statusStateRef.current === 'running') return;
     void loadInspection(selectedEnvoy, virtualTimeMsRef.current);
-  }, [selectedEnvoy, loadInspection]);
+  }, [selectedEnvoy, loadInspection, ready]);
 
   // --- Effect: pause/step/seek => fetch inspection (gate: not running) ---
   // This effect owns ONLY the status/time transition path: it fires on
@@ -143,7 +148,11 @@ export function Dock(): React.JSX.Element {
   );
 
   return (
-    <div className="flex h-full shrink-0" style={{ width }}>
+    <aside
+      aria-label="LB inspector and window analysis"
+      className="flex h-full shrink-0"
+      style={{ width }}
+    >
       {/* Drag divider -- <hr> is the semantic element for a vertical separator.
           tabIndex makes it keyboard-focusable as a splitter. */}
       <hr
@@ -178,7 +187,7 @@ export function Dock(): React.JSX.Element {
           )}
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
 

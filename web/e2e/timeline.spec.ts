@@ -24,8 +24,11 @@ function firstOverlay(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  // Wait for the worker to load and the first uPlot to mount.
-  await expect(firstOverlay(page)).toBeVisible();
+  // Wait for the worker to finish loadConfig (sets `ready`); the Play button
+  // becomes enabled once `ready` is true. Waiting on the overlay alone is not
+  // sufficient because the canvas mounts before the worker handshake completes.
+  // The Wasm artifact can take up to ~20s to load on a cold start.
+  await expect(page.getByRole('button', { name: 'Play' })).toBeEnabled({ timeout: 30_000 });
 });
 
 test('boots cross-origin isolated with the default scenario', async ({ page }) => {
@@ -33,8 +36,10 @@ test('boots cross-origin isolated with the default scenario', async ({ page }) =
   expect(await page.evaluate(() => self.crossOriginIsolated)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Envoy LB Simulator' })).toBeVisible();
   await expect(page.getByRole('banner')).toContainText('maglev');
-  // Five gauge strips render.
-  expect(await page.locator('.u-over').count()).toBe(5);
+  // Ten gauge strips render (7 raw gauges + 3 derived timeline strips).
+  // DerivedStrip canvases may mount a tick after the raw gauges; use toHaveCount
+  // with a timeout so the assertion waits for all strips to appear.
+  await expect(page.locator('.u-over')).toHaveCount(10);
 });
 
 test('play advances the virtual clock and pause halts it', async ({ page }) => {

@@ -161,6 +161,37 @@ describe('SimController stepping and playback', () => {
     expect((await c.status()).state).toBe('paused');
   });
 
+  it('accepts a Promise<LbModule> and awaits it inside loadConfig', async () => {
+    // Simulate the module-worker pattern: pass the lbModule as a Promise so
+    // Comlink.expose can be called before the module resolves.
+    let resolveModule!: (m: typeof mockLbModule) => void;
+    const modulePromise = new Promise<typeof mockLbModule>((res) => {
+      resolveModule = res;
+    });
+    const c = new SimController({ lbModule: modulePromise });
+
+    // loadConfig should hang until the promise resolves.
+    let configResolved = false;
+    const configPromise = c.loadConfig(makeConfig()).then((t) => {
+      configResolved = true;
+      return t;
+    });
+
+    // Not yet resolved: the module hasn't loaded. Yield a few microtask turns
+    // to give the Promise chain a chance to settle (it won't yet).
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(configResolved).toBe(false);
+
+    // Resolve the module; loadConfig should now complete.
+    resolveModule(mockLbModule);
+    await configPromise;
+    expect(configResolved).toBe(true);
+
+    // Subsequent loadConfig calls skip the await (module is now resolved).
+    const tele2 = await c.loadConfig(makeConfig());
+    expect(tele2.channels).toHaveLength(3);
+  });
+
   it('keeps the finished state through pause and step at the horizon', async () => {
     const ticker = new ManualTicker();
     const c = new SimController({ ticker });

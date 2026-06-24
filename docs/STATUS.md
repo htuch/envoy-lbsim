@@ -228,9 +228,16 @@ scenario, run, brush a window, inspect an Envoy) as those land.
 - least_request active-count transport (resolved in Track B): the engine keeps
   live per-Envoy per-backend active counts and refreshes the host set via
   `updateHosts` before each pick, so `WasmHost.activeRequests` is current at
-  `chooseHost` time. Track A carries it as the 7th `updateHosts` vector into the
+  `chooseHost` time. Track A carries it as the `activeRequests` vector into the
   lifted base's `host.stats().rq_active_`, which the real least_request reads at
   pick time; the other policies pass it through but ignore it.
+  - POLICY-AWARE refresh (cockpit branch): the per-pick `updateHosts` rebuilt the
+    O(65537)-slot Maglev / ring_hash table on every request, making cold-path
+    replays O(requests * table). `engine.dispatchUpstream` now refreshes per-pick
+    only for least_request (which reads live `rq_active_`); consistent-hash and
+    EDF policies build the host set once in `initLbs`, rebuilt only on a backend
+    health change. The inspection path still refreshes per-call, so the Inspector
+    stays correct.
 - Track A LIFTS Envoy's real `LoadBalancerBase` / `ThreadAwareLoadBalancerBase`
   (compiling the base `.cc` untouched) rather than shimming them, so panic/
   priority/locality/weight-normalization are Envoy's own code. An earlier cut

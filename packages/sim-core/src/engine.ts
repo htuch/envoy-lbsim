@@ -301,7 +301,30 @@ export class SimEngine {
     const seedBase = master.fork(5);
     const { policy, common } = this.config.envoys;
     for (let e = 0; e < this.config.envoys.count; e++) {
-      this.lbs.push(lbModule.createLb(policy, common, seedBase.fork(e).nextInt(2 ** 31)));
+      const lb = lbModule.createLb(policy, common, seedBase.fork(e).nextInt(2 ** 31));
+      // Build the initial hash table now. In Envoy, updateHosts is called when
+      // the endpoint set changes (EDS / health checks). In the sim, backends
+      // start healthy and their health never changes between simulation runs, so
+      // one call here is correct for deterministic scenarios.
+      //
+      // SUPERSEDED DESIGN: an earlier settled decision (see docs/STATUS.md and
+      // docs/ARCHITECTURE.md) had dispatchUpstream call updateHosts before every
+      // pick so that WasmHost.activeRequests (rq_active_) was current at
+      // chooseHost time. That is the transport for least_request's live active
+      // counts, which are captured only at updateHosts time. It is superseded
+      // here because for Maglev / ring_hash it rebuilt the O(65537)-slot table on
+      // every request (O(requests) rebuilds, 60+ s for a 1200-request run).
+      //
+      // least_request is currently deferred and mocked as round_robin, so nothing
+      // reads rq_active_ today. When least_request is lifted, this MUST be
+      // restored as a POLICY-AWARE refresh: a per-pick (or per-completion-dirty)
+      // updateHosts for active-count-sensitive policies only, never an
+      // unconditional per-pick rebuild of consistent-hash tables. The inspection
+      // path (line ~227) already refreshes per-call, so the Inspector stays
+      // correct regardless. If a future health-change event is added, it must
+      // likewise mark the affected LBs dirty and call updateHosts then.
+      lb.updateHosts(this.buildHostSet(e as EnvoyId));
+      this.lbs.push(lb);
     }
   }
 
@@ -409,7 +432,16 @@ export class SimEngine {
   /** LB pick + send to a backend. Assumes a concurrency slot is available. */
   private dispatchUpstream(req: Req, e: EnvoyState): void {
     const lb = this.lbs[req.envoy] as ReturnType<LbModule['createLb']>;
-    lb.updateHosts(this.buildHostSet(req.envoy));
+    // Policy-aware host refresh. The host set is built once in initLbs (and would
+    // be rebuilt on a backend health change). We do NOT rebuild it per request
+    // for consistent-hash policies (maglev/ring_hash): that rebuilds the entire
+    // O(65537)-slot table every pick, making full cold-path replays O(N*T) in the
+    // number of requests. least_request is the exception: it reads live
+    // host.stats().rq_active_ at pick time, so it MUST see current
+    // WasmHost.activeRequests; refresh it per pick for that policy only.
+    if (this.config.envoys.policy.kind === 'least_request') {
+      lb.updateHosts(this.buildHostSet(req.envoy));
+    }
     // Spread the small request key across the full 64-bit hash space before the
     // LB sees it: consistent-hash policies (ring_hash) treat the value as a ring
     // position, so a raw key would collapse all traffic onto one host.
