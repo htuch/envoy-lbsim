@@ -26,13 +26,30 @@ EMFLAGS := -std=c++20 -O2 -lembind \
            -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node \
            -sALLOW_MEMORY_GROWTH=1 -sEXPORT_NAME=createLbModule
 
-INCLUDES := -Ishim -I$(ENVOY)
+# -Ishim FIRST so the lightweight interface headers shadow Envoy's heavy ones.
+# -Ivendor carries third-party headers Envoy expects on the include path
+# (xxhash, header-only via -DXXH_INLINE_ALL) so HashUtil::xxHash64 is bit-faithful.
+INCLUDES := -Ishim -I$(ENVOY) -I$(ABSL) -Ivendor
+DEFINES  := -DXXH_INLINE_ALL
 
-.PHONY: build clean
-build: $(BUILD)/edf_smoke.mjs
+# The real Envoy policy implementations compiled in place (untouched).
+ENVOY_LB := $(ENVOY)/source/extensions/load_balancing_policies/maglev/maglev_lb.cc
+
+SHIM_HDRS := $(shell find shim -name '*.h') vendor/xxhash.h
+
+.PHONY: build smoke clean
+# Default: the real LB module (Embind ABI from @elbsim/protocol).
+build: $(BUILD)/lb.mjs
+$(BUILD)/lb.mjs: src/lb.cpp $(ENVOY_LB) $(SHIM_HDRS) absl_wasm_sources.txt
+	@mkdir -p $(BUILD)
+	$(EMXX) $(EMFLAGS) $(INCLUDES) $(DEFINES) -w src/lb.cpp $(ENVOY_LB) $(ABSL_WASM_SRC) -o $@
+	@echo "built $@"
+
+# The original EDF smoke brick (abseil-free); kept as the minimal toolchain proof.
+smoke: $(BUILD)/edf_smoke.mjs
 $(BUILD)/edf_smoke.mjs: src/edf_smoke.cpp $(wildcard shim/**/*.h)
 	@mkdir -p $(BUILD)
-	$(EMXX) $(EMFLAGS) $(INCLUDES) src/edf_smoke.cpp -o $@
+	$(EMXX) $(EMFLAGS) -Ishim -I$(ENVOY) src/edf_smoke.cpp -o $@
 	@echo "built $@"
 
 clean:
