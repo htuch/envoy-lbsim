@@ -74,7 +74,7 @@ describe('Timeline', () => {
     expect(plot.setData).toHaveBeenCalledOnce();
   });
 
-  it('commits a brushed window to the shared selection on drag end', async () => {
+  it('commits a brushed window and clears the highlight on the next frame', async () => {
     await loadStore();
     render(<Timeline kind="envoy" gauge="inFlight" />);
     const plot = MockUplot.instances[0]!;
@@ -82,7 +82,11 @@ describe('Timeline', () => {
     plot.posToVal = (px: number) => px / 100; // 100px → 1s, 500px → 5s
     act(() => plot.over.dispatchEvent(new MouseEvent('mouseup')));
     expect(useSimStore.getState().selection).toEqual({ fromMs: 1000, toMs: 5000 });
-    expect(plot.setSelect).toHaveBeenCalled(); // local highlight cleared
+    // The highlight is cleared on the next animation frame, not synchronously,
+    // so it stays visible through uPlot's own mouseup handling during the drag.
+    expect(plot.setSelect).not.toHaveBeenCalled();
+    act(() => rafCb?.(0));
+    expect(plot.setSelect).toHaveBeenCalledWith({ left: 0, top: 0, width: 0, height: 0 }, false);
   });
 
   it('ignores a too-small drag (a stray click)', async () => {
@@ -100,7 +104,6 @@ describe('Timeline', () => {
     const plot = MockUplot.instances[0]!;
     act(() => useSimStore.getState().setSelection({ fromMs: 1000, toMs: 2000 }));
     expect(plot.setScale).toHaveBeenCalledWith('x', { min: 1, max: 2 });
-    expect(plot.setSelect).toHaveBeenCalled(); // synced brush highlight cleared
     // Clearing the selection snaps back to the live data extent (seeded t=0 frame).
     act(() => useSimStore.getState().setSelection(null));
     expect(plot.setScale).toHaveBeenLastCalledWith('x', { min: 0, max: 1 });

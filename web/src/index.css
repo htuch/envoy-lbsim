@@ -83,10 +83,12 @@
   }
 }
 
-/* The timeline strips use uPlot's drag only to capture a brush window; the
-   committed window is rendered by zooming every strip in lock step (see
-   components/timeline/Timeline.tsx), so the per-plot select rectangle is
-   redundant and would read as a stray highlight band. Hide it. */
+/* Live brush highlight while dragging a window on a timeline (uPlot's select
+   region). Gives clear visual feedback during the drag; it is cleared on
+   release once every strip zooms to the committed window in lock step
+   (see components/timeline/Timeline.tsx). */
 .u-select {
-  display: none;
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  border-left: 1px solid var(--primary);
+  border-right: 1px solid var(--primary);
 }

@@ -30,6 +30,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Unit tests only; the Playwright E2E suite under e2e/ (*.spec.ts) is run
+    // separately via `pnpm --filter web test:e2e`, not by Vitest.
+    include: ['src/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

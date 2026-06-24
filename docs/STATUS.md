@@ -87,6 +87,10 @@ Mocks until done: none (this is the real thing the mock stands in for).
   real `SimWorkerApi` and paces deterministic gauge frames into the rings under
   transport control (`web/src/worker/`). Track B swaps the worker URL in
   `web/src/worker/client.ts`; everything else is unchanged.
+A Playwright E2E suite covers the behaviors units cannot (real canvas, the live
+brush highlight, cross-origin isolation): `web/e2e/timeline.spec.ts`, run with
+`pnpm --filter web test:e2e` (needs the browser once: `test:e2e:install`). Vitest
+is scoped to `src/**/*.test.*`, so it does not pick up the `e2e/*.spec.ts` files.
 Small follow-ups (not blocking): cross-strip crosshair sync (hover reads the
 same x on every gauge) was deliberately deferred to avoid uPlot's select-band
 artifact; revisit with a custom cursor-sync that does not mirror the drag select.
@@ -117,8 +121,9 @@ against a real `SimController` instead of synthetic streams.
 ## Integration (after tracks)
 
 Wire real Wasm into the kernel, the real kernel into the UI, and real inspection
-payloads into the inspector. Add Playwright E2E around the core user journeys
-(assemble scenario, run, brush a window, inspect an Envoy).
+payloads into the inspector. The Playwright E2E harness is in place
+(`web/e2e/`, started in Track C); extend it across the full journeys (assemble
+scenario, run, brush a window, inspect an Envoy) as those land.
 
 ## Design decisions (settled)
 

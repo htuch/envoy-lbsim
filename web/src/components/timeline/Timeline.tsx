@@ -47,21 +47,22 @@ export function Timeline({
     const initial: uPlot.AlignedData = [[], ...Array.from({ length: entityCount }, () => [])];
     const plot = new uPlot(makeTimelineOpts(entityCount, width, height, sync), initial, host);
 
-    // Brush capture: on drag end, turn the select region into the shared window
-    // and clear the local highlight (the window is rendered via the range fn).
+    // Brush capture: the drag shows uPlot's live select highlight; on release we
+    // turn the region into the shared window. The highlight is cleared on the
+    // next frame (after uPlot's own document-level mouseup finalizes the select)
+    // since the committed window is shown by zooming every strip instead.
     const onMouseUp = (): void => {
       const window = selectionFromPlot(plot);
-      plot.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
       if (window) sync.onSelectSec(window[0], window[1]);
+      requestAnimationFrame(() => plot.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false));
     };
     plot.over.addEventListener('mouseup', onMouseUp);
 
     // Lock step: when the shared selection changes, every strip snaps its x
     // scale to the same target in unison (the window when set, the live data
-    // extent when cleared) and drops any synced brush highlight. `setScale` is
-    // explicit because a bare `redraw` does not re-run the range fn while paused.
+    // extent when cleared). `setScale` is explicit because a bare `redraw` does
+    // not re-run the range fn while paused.
     const applyView = (): void => {
-      plot.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
       const sel = useSimStore.getState().selection;
       if (sel) {
         plot.setScale('x', { min: sel.fromMs / 1000, max: sel.toMs / 1000 });

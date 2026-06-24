@@ -141,6 +141,10 @@ coordinated breaking change.
 
 See `CLAUDE.md` for the exact commands. The TS workspace lints with Biome, type
 checks with strict TypeScript, and tests with Vitest under a 95% coverage gate.
+The web app additionally has a Playwright E2E suite (`web/e2e/`, run with
+`pnpm --filter web test:e2e`) for the behaviors units cannot prove: real uPlot
+canvas rendering, the live brush highlight, and SharedArrayBuffer cross-origin
+isolation. Vitest is scoped to `src/**/*.test.*` so it ignores the E2E specs.
 The Wasm module builds with `em++` (needs an activated emsdk) and is verified by
 a golden smoke test (real Envoy EDF reproducing weighted distribution) under
 node; CI runs it in a dedicated job with the emsdk action.
