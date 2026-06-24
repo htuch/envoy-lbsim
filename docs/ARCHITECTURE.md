@@ -102,7 +102,11 @@ Request lifecycle (each transition is an event and, for the cold path, a
 `RequestEvent`): client emit -> client routes to an Envoy -> Envoy admission
 queue -> LB picks a backend (Wasm) -> backend service (capacity + latency +
 queue) -> completion or timeout/shed. Timeouts are checked in virtual time and
-attributed to goodput.
+attributed to goodput. `engine.ts` (`SimEngine`) implements this lifecycle and
+the entity models; `controller.ts` (`SimController`) wraps it as the worker
+`SimWorkerApi` (playback, backward-seek replay, `queryWindow`, inspection).
+Per-entity hot-path latency uses a decaying log-bucket histogram
+(`histogram.ts`) feeding the appended latency gauge columns.
 
 `mock-lb.ts` implements the Wasm LB ABI in pure TS (round-robin / hash-modulo)
 so kernel and frontend work proceeds before the real Wasm module lands. It is a
