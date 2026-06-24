@@ -160,6 +160,11 @@ export class SimController implements SimWorkerApi {
   }
 
   async queryWindow(q: { fromMs: number; toMs: number }) {
+    return this.queryWindowSync(q);
+  }
+
+  /** Synchronous core of {@link queryWindow}, for in-process callers (CLI). */
+  queryWindowSync(q: { fromMs: number; toMs: number }) {
     // Cohort-based: select the requests *emitted* in the window, then attribute
     // each by its terminal outcome wherever it resolved. This matches the
     // contract ("completed within timeout / total emitted") and avoids
