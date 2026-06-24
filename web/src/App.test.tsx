@@ -9,6 +9,12 @@ const { MockUplot } = vi.hoisted(() => {
     setData = vi.fn();
     setSize = vi.fn();
     destroy = vi.fn();
+    redraw = vi.fn();
+    setScale = vi.fn();
+    setSelect = vi.fn();
+    posToVal = (pos: number): number => pos;
+    select = { left: 0, top: 0, width: 0, height: 0 };
+    over = document.createElement('div');
     constructor(
       public opts: unknown,
       public data: unknown,

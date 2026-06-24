@@ -82,3 +82,11 @@
     font-feature-settings: "tnum" 1; /* tabular numerals for dense metrics */
   }
 }
+
+/* The timeline strips use uPlot's drag only to capture a brush window; the
+   committed window is rendered by zooming every strip in lock step (see
+   components/timeline/Timeline.tsx), so the per-plot select rectangle is
+   redundant and would read as a stray highlight band. Hide it. */
+.u-select {
+  display: none;
+}

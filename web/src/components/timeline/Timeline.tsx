@@ -2,7 +2,7 @@ import { type EntityKind, gaugeIndex } from '@elbsim/protocol';
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import { buildSeries } from '@/lib/series';
-import { makeTimelineOpts } from '@/lib/uplot-opts';
+import { makeTimelineOpts, selectionFromPlot, type TimelineSync } from '@/lib/uplot-opts';
 import { useSimStore } from '@/store/sim-store';
 
 /**
@@ -11,6 +11,10 @@ import { useSimStore } from '@/store/sim-store';
  * pushes data straight into the plot. It never routes 60fps frames through React
  * state; the component re-mounts the plot only when the underlying ring changes
  * (a new run), per ARCHITECTURE.md's hot/cold split.
+ *
+ * Zoom is lock-step across strips: every strip pins its x scale to the single
+ * shared selection in the store (via the uPlot `range` fn), so brushing one strip
+ * zooms them all to the identical window and freezes it while live data streams.
  */
 export function Timeline({
   kind,
@@ -30,8 +34,49 @@ export function Timeline({
     const col = gaugeIndex(kind, gauge);
     const entityCount = ring.spec.entityCount;
     const width = host.clientWidth || 600;
+
+    const sync: TimelineSync = {
+      getWindowSec: () => {
+        const sel = useSimStore.getState().selection;
+        return sel ? [sel.fromMs / 1000, sel.toMs / 1000] : null;
+      },
+      onSelectSec: (minSec, maxSec) =>
+        useSimStore.getState().setSelection({ fromMs: minSec * 1000, toMs: maxSec * 1000 }),
+    };
+
     const initial: uPlot.AlignedData = [[], ...Array.from({ length: entityCount }, () => [])];
-    const plot = new uPlot(makeTimelineOpts(entityCount, width, height), initial, host);
+    const plot = new uPlot(makeTimelineOpts(entityCount, width, height, sync), initial, host);
+
+    // Brush capture: on drag end, turn the select region into the shared window
+    // and clear the local highlight (the window is rendered via the range fn).
+    const onMouseUp = (): void => {
+      const window = selectionFromPlot(plot);
+      plot.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+      if (window) sync.onSelectSec(window[0], window[1]);
+    };
+    plot.over.addEventListener('mouseup', onMouseUp);
+
+    // Lock step: when the shared selection changes, every strip snaps its x
+    // scale to the same target in unison (the window when set, the live data
+    // extent when cleared) and drops any synced brush highlight. `setScale` is
+    // explicit because a bare `redraw` does not re-run the range fn while paused.
+    const applyView = (): void => {
+      plot.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+      const sel = useSimStore.getState().selection;
+      if (sel) {
+        plot.setScale('x', { min: sel.fromMs / 1000, max: sel.toMs / 1000 });
+        return;
+      }
+      const latest = ring.latest();
+      if (!latest) return;
+      const first = ring.frameAt(0).t;
+      const min = first / 1000;
+      const max = latest.t > first ? latest.t / 1000 : min + 1;
+      plot.setScale('x', { min, max });
+    };
+    const unsubscribe = useSimStore.subscribe((state, prev) => {
+      if (state.selection !== prev.selection) applyView();
+    });
 
     let raf = 0;
     let lastSize = -1;
@@ -57,6 +102,8 @@ export function Timeline({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      plot.over.removeEventListener('mouseup', onMouseUp);
+      unsubscribe();
       plot.destroy();
     };
   }, [ring, kind, gauge, height]);

@@ -5,8 +5,16 @@ import {
   type RunStatus,
   type SharedTelemetry,
   type SimWorkerApi,
+  type WindowQuery,
 } from '@elbsim/protocol';
 import { create } from 'zustand';
+
+/**
+ * A committed x-window (virtual ms) selected by brushing a timeline. Shared by
+ * every strip so zoom is lock-step across gauges, and handed to the cold path
+ * (Track D's `queryWindow`). `null` means "no selection": follow the live range.
+ */
+export type TimelineSelection = WindowQuery | null;
 
 /**
  * The single client-side store. It owns the active config, the playback status
@@ -28,6 +36,8 @@ export interface SimStore {
   rings: Map<EntityKind, GaugeRingBuffer>;
   /** True once a config has been loaded and telemetry buffers exist. */
   ready: boolean;
+  /** The committed brushed x-window shared across all timelines (null = live). */
+  selection: TimelineSelection;
 
   attach: (api: SimWorkerApi) => void;
   /** Load a config (defaults to the current draft) and prepare a fresh run. */
@@ -41,6 +51,8 @@ export interface SimStore {
   syncStatus: () => Promise<void>;
   /** Replace the active config draft without reloading (the editor uses this). */
   setConfig: (config: SimConfig) => void;
+  /** Commit (or clear, with `null`) the shared brushed window. */
+  setSelection: (selection: TimelineSelection) => void;
 }
 
 const IDLE_STATUS: RunStatus = { state: 'idle', virtualTimeMs: 0, speed: 0 };
@@ -68,6 +80,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   status: IDLE_STATUS,
   rings: new Map(),
   ready: false,
+  selection: null,
 
   attach: (api) => set({ api }),
 
@@ -76,7 +89,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
     if (!api) throw new Error('store is not attached to a worker');
     const next = config ?? draft;
     const telemetry = await api.loadConfig(next);
-    set({ config: next, rings: ringsFromTelemetry(telemetry), ready: true });
+    // A fresh run invalidates any prior brushed window.
+    set({ config: next, rings: ringsFromTelemetry(telemetry), ready: true, selection: null });
     await get().syncStatus();
   },
 
@@ -122,4 +136,6 @@ export const useSimStore = create<SimStore>((set, get) => ({
   },
 
   setConfig: (config) => set({ config }),
+
+  setSelection: (selection) => set({ selection }),
 }));

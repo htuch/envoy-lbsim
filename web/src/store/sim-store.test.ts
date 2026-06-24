@@ -70,4 +70,19 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().config.seed).toBe(42);
     expect(useSimStore.getState().ready).toBe(false);
   });
+
+  it('holds and clears the shared brushed selection', () => {
+    expect(useSimStore.getState().selection).toBeNull();
+    useSimStore.getState().setSelection({ fromMs: 1000, toMs: 2000 });
+    expect(useSimStore.getState().selection).toEqual({ fromMs: 1000, toMs: 2000 });
+    useSimStore.getState().setSelection(null);
+    expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  it('clears any selection when a fresh run is loaded', async () => {
+    useSimStore.getState().attach(new MockSimRunner());
+    useSimStore.getState().setSelection({ fromMs: 1000, toMs: 2000 });
+    await useSimStore.getState().load();
+    expect(useSimStore.getState().selection).toBeNull();
+  });
 });

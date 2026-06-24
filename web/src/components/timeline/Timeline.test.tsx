@@ -4,13 +4,19 @@ import { useSimStore } from '@/store/sim-store';
 import { MockSimRunner } from '@/worker/runner';
 import { Timeline } from './Timeline';
 
-// Stub uPlot: jsdom has no canvas, and we only assert the data plumbing.
+// Stub uPlot: jsdom has no canvas, and we only assert the data + brush plumbing.
 const { MockUplot } = vi.hoisted(() => {
   class MockUplot {
     static instances: MockUplot[] = [];
     setData = vi.fn();
     setSize = vi.fn();
     destroy = vi.fn();
+    redraw = vi.fn();
+    setScale = vi.fn();
+    setSelect = vi.fn();
+    posToVal = (pos: number): number => pos / 100;
+    select = { left: 0, top: 0, width: 0, height: 0 };
+    over = document.createElement('div');
     constructor(
       public opts: unknown,
       public data: unknown,
@@ -66,6 +72,50 @@ describe('Timeline', () => {
     // A second frame with no new data is a no-op (hot-path change detection).
     act(() => rafCb?.(0));
     expect(plot.setData).toHaveBeenCalledOnce();
+  });
+
+  it('commits a brushed window to the shared selection on drag end', async () => {
+    await loadStore();
+    render(<Timeline kind="envoy" gauge="inFlight" />);
+    const plot = MockUplot.instances[0]!;
+    plot.select = { left: 100, top: 0, width: 400, height: 50 };
+    plot.posToVal = (px: number) => px / 100; // 100px → 1s, 500px → 5s
+    act(() => plot.over.dispatchEvent(new MouseEvent('mouseup')));
+    expect(useSimStore.getState().selection).toEqual({ fromMs: 1000, toMs: 5000 });
+    expect(plot.setSelect).toHaveBeenCalled(); // local highlight cleared
+  });
+
+  it('ignores a too-small drag (a stray click)', async () => {
+    await loadStore();
+    render(<Timeline kind="backend" gauge="utilization" />);
+    const plot = MockUplot.instances[0]!;
+    plot.select = { left: 100, top: 0, width: 2, height: 50 };
+    act(() => plot.over.dispatchEvent(new MouseEvent('mouseup')));
+    expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  it('snaps the x scale in lock step when the shared selection changes', async () => {
+    await loadStore();
+    render(<Timeline kind="envoy" gauge="inFlight" />);
+    const plot = MockUplot.instances[0]!;
+    act(() => useSimStore.getState().setSelection({ fromMs: 1000, toMs: 2000 }));
+    expect(plot.setScale).toHaveBeenCalledWith('x', { min: 1, max: 2 });
+    expect(plot.setSelect).toHaveBeenCalled(); // synced brush highlight cleared
+    // Clearing the selection snaps back to the live data extent (seeded t=0 frame).
+    act(() => useSimStore.getState().setSelection(null));
+    expect(plot.setScale).toHaveBeenLastCalledWith('x', { min: 0, max: 1 });
+  });
+
+  it('pins the x scale to the shared window via the range fn', async () => {
+    await loadStore();
+    render(<Timeline kind="envoy" gauge="inFlight" />);
+    const opts = MockUplot.instances[0]!.opts as {
+      scales: { x: { range: (u: unknown, a: number, b: number) => [number, number] } };
+    };
+    const range = opts.scales.x.range;
+    expect(range({}, 0, 30)).toEqual([0, 30]); // no selection → data extent
+    act(() => useSimStore.getState().setSelection({ fromMs: 1000, toMs: 5000 }));
+    expect(range({}, 0, 30)).toEqual([1, 5]); // selection → frozen window (seconds)
   });
 
   it('resizes on window resize and destroys on unmount', async () => {

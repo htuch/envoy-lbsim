@@ -55,4 +55,18 @@ describe('TransportBar', () => {
     fireEvent.click(screen.getByLabelText('Reset to start'));
     await waitFor(() => expect(useSimStore.getState().status.virtualTimeMs).toBe(0));
   });
+
+  it('surfaces a reset-zoom control for a brushed window and clears it', () => {
+    useSimStore.getState().setSelection({ fromMs: 1200, toMs: 3400 });
+    render(<TransportBar />);
+    const reset = screen.getByLabelText('Reset zoom');
+    expect(reset).toHaveTextContent('1.20–3.40s');
+    fireEvent.click(reset);
+    expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  it('hides the reset-zoom control when no window is selected', () => {
+    render(<TransportBar />);
+    expect(screen.queryByLabelText('Reset zoom')).not.toBeInTheDocument();
+  });
 });

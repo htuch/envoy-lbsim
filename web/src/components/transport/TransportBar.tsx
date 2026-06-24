@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw, StepForward } from 'lucide-react';
+import { Pause, Play, RotateCcw, StepForward, ZoomOut } from 'lucide-react';
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -28,6 +28,8 @@ export function TransportBar(): React.JSX.Element {
   const seek = useSimStore((s) => s.seek);
   const setSpeed = useSimStore((s) => s.setSpeed);
   const syncStatus = useSimStore((s) => s.syncStatus);
+  const selection = useSimStore((s) => s.selection);
+  const setSelection = useSimStore((s) => s.setSelection);
 
   const running = status.state === 'running';
   const finished = status.state === 'finished';
@@ -87,6 +89,20 @@ export function TransportBar(): React.JSX.Element {
       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
         {fmtSeconds(status.virtualTimeMs)} / {fmtSeconds(duration)}
       </span>
+
+      {selection && (
+        <Button
+          variant="outline"
+          aria-label="Reset zoom"
+          title="Clear the brushed window"
+          onClick={() => setSelection(null)}
+        >
+          <ZoomOut size={12} />
+          <span className="font-mono tabular-nums">
+            {(selection.fromMs / 1000).toFixed(2)}–{(selection.toMs / 1000).toFixed(2)}s
+          </span>
+        </Button>
+      )}
 
       <Select
         aria-label="Playback speed"
