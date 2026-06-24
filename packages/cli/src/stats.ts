@@ -90,6 +90,15 @@ export function computeStats(events: readonly RequestEvent[]): Stats {
       case 'rejected':
         rejected++;
         break;
+      case 'client_routed':
+      case 'envoy_queued':
+      case 'backend_sent':
+        break;
+      /* c8 ignore next 4 -- unreachable exhaustiveness guard */
+      default: {
+        const _exhaustive: never = e;
+        void _exhaustive;
+      }
     }
   }
 

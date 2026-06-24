@@ -27,6 +27,10 @@ describe('computeStats', () => {
       { t: 2, req: 3, phase: 'timed_out', reason: 'timeout' },
       { t: 0, req: 4, phase: 'emitted', client: 0, key: 5 },
       { t: 1, req: 4, phase: 'rejected', reason: 'envoy_overflow', envoy: 0 },
+      // intermediate phases are no-ops; verify they don't perturb stats
+      { t: 0, req: 5, phase: 'client_routed', client: 0, envoy: 0 },
+      { t: 0, req: 5, phase: 'envoy_queued', envoy: 0, queueDepth: 1 },
+      { t: 0, req: 5, phase: 'backend_sent', envoy: 0, backend: 1 },
     ];
     const s = computeStats(events);
     expect(s.outcomes).toEqual({ completed: 3, timedOut: 1, rejected: 1, total: 5 });
@@ -47,6 +51,21 @@ describe('computeStats', () => {
     ];
     const s = computeStats(events);
     expect(s.latencyP50).toBeCloseTo(20, 10);
+  });
+
+  it('interpolates percentiles at non-integer ranks', () => {
+    // 4-element sorted set [10, 20, 30, 40]; n-1 = 3
+    // P90: rank = 0.9*3 = 2.7 -> 0.3*30 + 0.7*40 = 37
+    // P50: rank = 0.5*3 = 1.5 -> 0.5*20 + 0.5*30 = 25
+    const events: RequestEvent[] = [
+      ...lifecycle(0, 1, 0, 0, 10),
+      ...lifecycle(1, 2, 0, 0, 20),
+      ...lifecycle(2, 3, 0, 0, 30),
+      ...lifecycle(3, 4, 0, 0, 40),
+    ];
+    const s = computeStats(events);
+    expect(s.latencyP50).toBeCloseTo(25, 10);
+    expect(s.latencyP90).toBeCloseTo(37, 10);
   });
 
   it('returns zeroed goodput and percentiles for an empty stream', () => {
