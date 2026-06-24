@@ -34,7 +34,16 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main.tsx', 'src/vite-env.d.ts', 'src/test-setup.ts', '**/*.test.{ts,tsx}'],
+      exclude: [
+        'src/main.tsx',
+        'src/vite-env.d.ts',
+        'src/test-setup.ts',
+        // Worker bootstrap glue: real Worker + Comlink.expose, not runnable under
+        // jsdom. The runner logic they wrap is unit-tested directly (runner.test).
+        'src/worker/mock-sim-worker.ts',
+        'src/worker/client.ts',
+        '**/*.test.{ts,tsx}',
+      ],
       thresholds: { lines: 95, functions: 95, branches: 95, statements: 95 },
     },
   },

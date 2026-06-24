@@ -1,62 +1,53 @@
-import { defaultSimConfig, type SimConfig } from '@elbsim/config';
-import { cn } from '@/lib/utils';
+import { ConfigEditor } from '@/components/config/ConfigEditor';
+import { TimelineStrip } from '@/components/timeline/TimelineStrip';
+import { TransportBar } from '@/components/transport/TransportBar';
+import { useSimStore } from '@/store/sim-store';
 
 /**
- * Application shell. This is the scaffold the frontend tracks build on: it wires
- * the shared `@elbsim/config` source of truth into a high-SNR control-panel
- * layout (sidebar config + main visualization area). The simulation kernel,
- * worker wiring, and the uPlot / Observable Plot / React Flow views land in
- * later sessions per docs/STATUS.md.
+ * Application shell for Track C: a high-SNR control-panel layout. A schema-driven
+ * config editor on the left, a stack of live gauge timelines in the center fed
+ * from the shared ring buffers, and the playback transport pinned to the bottom.
+ * The topology graph, cold-path analytical charts, and the LB inspector (Track D)
+ * land in the visualization area in later sessions.
  */
+const STRIPS = [
+  { kind: 'envoy', gauge: 'inFlight', label: 'Envoy · in-flight' },
+  { kind: 'envoy', gauge: 'queueDepth', label: 'Envoy · queue depth' },
+  { kind: 'backend', gauge: 'utilization', label: 'Backend · utilization' },
+  { kind: 'backend', gauge: 'inFlight', label: 'Backend · in-flight' },
+  { kind: 'client', gauge: 'emitRate', label: 'Client · emit rate' },
+] as const;
+
 export function App(): React.JSX.Element {
-  const config: SimConfig = defaultSimConfig();
+  const policy = useSimStore((s) => s.config.envoys.policy.kind);
+  const state = useSimStore((s) => s.status.state);
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b px-4 py-2">
         <h1 className="text-sm font-semibold tracking-tight">Envoy LB Simulator</h1>
-        <span className="text-xs text-muted-foreground">scaffold</span>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+          {policy} · {state}
+        </span>
       </header>
       <div className="flex min-h-0 flex-1">
         <aside className="w-72 shrink-0 overflow-y-auto border-r p-3">
-          <ConfigSummary config={config} />
+          <ConfigEditor />
         </aside>
-        <main className="grid flex-1 place-items-center p-6">
-          <p className="max-w-md text-center text-sm text-muted-foreground">
-            Visualization surface. Topology graph, brushable timelines, and the LB data-structure
-            inspector render here once the sim kernel and views are wired.
-          </p>
-        </main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {STRIPS.map((s) => (
+              <TimelineStrip
+                key={`${s.kind}:${s.gauge}`}
+                kind={s.kind}
+                gauge={s.gauge}
+                label={s.label}
+              />
+            ))}
+          </main>
+          <TransportBar />
+        </div>
       </div>
     </div>
-  );
-}
-
-function ConfigSummary({ config }: { config: SimConfig }): React.JSX.Element {
-  const rows: Array<[string, string]> = [
-    ['Clients', `${config.clients.count} · ${config.clients.arrival.kind}`],
-    ['Envoys', `${config.envoys.count} · ${config.envoys.policy.kind}`],
-    ['Backends', `${config.backends.count} · cap ${config.backends.defaults.capacity}`],
-    ['Timeout', `${config.timeouts.requestTimeoutMs} ms`],
-    ['Duration', `${config.time.durationMs} ms`],
-    ['Seed', String(config.seed)],
-  ];
-  return (
-    <dl className="space-y-1">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Scenario
-      </p>
-      {rows.map(([label, value]) => (
-        <div
-          key={label}
-          className={cn(
-            'flex items-baseline justify-between gap-2 rounded px-2 py-1',
-            'hover:bg-accent',
-          )}
-        >
-          <dt className="text-xs text-muted-foreground">{label}</dt>
-          <dd className="font-mono text-xs tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
