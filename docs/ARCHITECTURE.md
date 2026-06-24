@@ -73,6 +73,15 @@ layer, SVG owns the expressive layer. The topology graph uses `@xyflow/react`
 (read-only) laid out left-to-right with `@dagrejs/dagre`. Dense animated layers
 (requests in flight) use a Canvas overlay, escalating to WebGL only if needed.
 
+The frontend (`web/`) talks only to the `SimWorkerApi` Comlink contract, never
+to a kernel directly. Until Track B lands, a synthetic worker
+(`web/src/worker/`) implements that same interface: it allocates the SAB rings
+and paces deterministic gauge frames into them under transport control, so the
+hot-path render loop and config editor run against the real contract. Track B's
+kernel worker is a drop-in swap at one URL in `web/src/worker/client.ts`. This
+mirrors how `sim-core/mock-lb.ts` stands in for the Wasm LB: scaffolds live
+behind the durable interface, never alongside it.
+
 ### 4. Reproducible Wasm build via submodules + em++ (no Bazel, no CMake)
 
 Envoy and abseil are pinned git submodules. The Wasm module is built with a

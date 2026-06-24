@@ -8,13 +8,12 @@ Phase 0 (scaffolding) is complete and Track B (simulation kernel) is done.
 `sim-core` is now a full discrete-event simulation that drives the request
 lifecycle end to end, emits the `RequestEvent` stream, writes hot-path gauge
 frames into the ring buffers, and exposes the worker `SimWorkerApi` via
-`SimController`. It hosts the upstream LB behind the Wasm ABI using
-`mockLbModule` until Track A lands. The repo builds, type checks, lints, and
-tests green under the 95% coverage gate.
+`SimController`. Track C's frontend shell, hot-path telemetry, and config editor
+are landed (C1+C2); brushing (C3) remains. The repo builds, type checks, lints,
+and tests green under the 95% coverage gate.
 
-Remaining work is Tracks A, C, D plus integration. Each is gated only on the
-Phase 0 interfaces and mocks the others until they land. The concrete next step
-is under "Next step" below.
+Remaining work is Tracks A, D, Track C's C3, plus integration. Each is gated
+only on the Phase 0 interfaces and mocks the others until they land.
 
 ## Phase 0: scaffolding and interfaces (DONE)
 
@@ -71,11 +70,27 @@ Mocks until done: none (this is the real thing the mock stands in for).
   engine feeds live per-host active counts so the real policy will work).
 
 ### Track C: frontend shell and hot path
-- App layout and shadcn control panel; schema-driven config editor over
-  `@elbsim/config`.
-- uPlot timeline strips with brushing; playback transport (play/pause/step/seek/
-  speed); zustand store; worker wiring (Comlink + SharedArrayBuffer ring buffers).
-Mocks until done: drive from a synthetic telemetry stream behind `protocol`.
+Done (C1+C2):
+- Control-panel layout (`web/src/App.tsx`); schema-driven config editor over
+  `@elbsim/config` validated through Zod before reload
+  (`web/src/components/config/ConfigEditor.tsx`).
+- Playback transport (play/pause/step/seek/speed) and a zustand store mirroring
+  worker status (`web/src/components/transport/`, `web/src/store/sim-store.ts`).
+- Hot path: uPlot gauge strips fed by a `requestAnimationFrame` loop reading the
+  SharedArrayBuffer rings directly, never through React
+  (`web/src/components/timeline/`, `web/src/lib/series.ts`).
+- Worker wiring (Comlink + SAB): a synthetic telemetry worker implements the
+  real `SimWorkerApi` and paces deterministic gauge frames into the rings under
+  transport control (`web/src/worker/`). Track B swaps the worker URL in
+  `web/src/worker/client.ts`; everything else is unchanged.
+Remaining (C3):
+- uPlot brushing: select a window on a strip and commit it (the brushed range
+  feeds Track D's cold-path charts via `queryWindow`). Next concrete step: add a
+  uPlot brush plugin to `web/src/components/timeline/Timeline.tsx` and store the
+  committed `{fromMs,toMs}` in the zustand store. Open question: shared brush
+  across all strips vs per-strip.
+Mocks until done: the synthetic worker (`web/src/worker/`) stands in behind
+`protocol`; replaced by Track B's kernel worker at integration.
 
 ### Track D: topology, cold path, inspector
 - `@xyflow/react` + dagre topology graph with live status; queue visualizations.
