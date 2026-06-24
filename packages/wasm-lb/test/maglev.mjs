@@ -1,14 +1,15 @@
-// Golden + property test for the maglev lift: the REAL Envoy OriginalMaglevTable
-// (source/extensions/load_balancing_policies/maglev/maglev_lb.cc) compiled to
-// Wasm and driven across the Embind ABI.
+// Golden + fidelity test for the maglev lift: the REAL Envoy MaglevLoadBalancer
+// driven through the REAL LoadBalancerBase + thread-aware factory (the unmodified
+// source/extensions/load_balancing_policies/{common,maglev}/*.cc), compiled to
+// Wasm and exercised across the Embind ABI.
 //
 // The golden case asserts the Wasm table matches, slot for slot, the table built
 // by the independent lb_core extract-track oracle (test/maglev_golden.json) for
 // identical {backendId, weight} inputs -- proving the lift is bit-faithful to the
-// algorithm (same xxhash, same permutation math, same sort). The property cases
-// cover the behaviors that matter for an LB: weight-proportional distribution,
-// determinism, and maglev's defining minimal-disruption guarantee on membership
-// change.
+// algorithm (same xxhash, same permutation math, same sort). The remaining cases
+// cover the behaviors an LB must get right: weight-proportional distribution,
+// determinism, maglev's minimal-disruption guarantee, and -- exercising the real
+// base specifically -- health filtering, panic mode, and priority failover.
 //
 // Skips gracefully (exit 0) when the artifact is not built so `pnpm -r test`
 // stays green without emsdk; CI's wasm job builds first and runs it for real.
@@ -32,19 +33,32 @@ function check(name, ok, detail = '') {
   if (!ok) failures++;
 }
 
-// Build a maglev table over {backends, weights} and return its per-slot backend
-// table via the Embind ABI (inspect() reads every slot through chooseHost).
-function buildTable(backends, weights, tableSize) {
-  const lb = mod.createMaglevLb(tableSize, false);
+const HEALTHY = 2;
+const PANIC_THRESHOLD = 50;
+const OVERPROVISIONING = 140;
+
+// Build a maglev table over a host set and return its per-slot backend table via
+// the Embind ABI (inspect() reads every slot through chooseHost). Drives the real
+// Envoy base: by default a single priority of all-healthy hosts in one locality.
+function buildTable(backends, weights, tableSize, opts = {}) {
+  const { healths = backends.map(() => HEALTHY), priorities = backends.map(() => 0) } = opts;
+  const lb = mod.createMaglevLb(tableSize, false, PANIC_THRESHOLD, OVERPROVISIONING, 0);
   const bv = new mod.VectorInt();
   const wv = new mod.VectorDouble();
+  const hv = new mod.VectorInt();
+  const pv = new mod.VectorInt();
+  const regions = new mod.VectorString();
+  const zones = new mod.VectorString();
   for (let i = 0; i < backends.length; i++) {
     bv.push_back(backends[i]);
     wv.push_back(weights[i]);
+    hv.push_back(healths[i]);
+    pv.push_back(priorities[i]);
+    regions.push_back('');
+    zones.push_back('');
   }
-  lb.updateHosts(bv, wv);
-  bv.delete();
-  wv.delete();
+  lb.updateHosts(bv, wv, hv, pv, regions, zones);
+  for (const v of [bv, wv, hv, pv, regions, zones]) v.delete();
   const structure = lb.inspect();
   const table = structure.table;
   lb.delete();
@@ -124,6 +138,57 @@ check(
     'minimal disruption on host removal',
     churn < 0.05,
     `survivor churn ${(churn * 100).toFixed(2)}%`,
+  );
+}
+
+// 5. Health filtering (real LoadBalancerBase): unhealthy hosts are partitioned
+// out before the table is built, so they never receive traffic.
+{
+  const t = buildTable([1, 2, 3], [1, 1, 1], 1021, { healths: [HEALTHY, 0, HEALTHY] });
+  const present = new Set(t.table.filter((b) => b >= 0));
+  check(
+    'unhealthy host excluded from table',
+    !present.has(2) && present.has(1) && present.has(3),
+    `present=${[...present].sort((a, b) => a - b)}`,
+  );
+}
+
+// 6. Panic mode (real LoadBalancerBase): with healthy hosts below the panic
+// threshold (here zero healthy), the cluster routes across ALL hosts rather than
+// dropping traffic.
+{
+  const t = buildTable([1, 2, 3], [1, 1, 1], 1021, { healths: [0, 0, 0] });
+  const present = new Set(t.table.filter((b) => b >= 0));
+  check(
+    'panic mode routes over all hosts',
+    present.size === 3,
+    `present=${[...present].sort((a, b) => a - b)}`,
+  );
+}
+
+// 7. Priority failover (real LoadBalancerBase priority load): while P0 has healthy
+// hosts it takes all traffic; when P0 is fully unhealthy, load shifts to P1.
+{
+  const healthyP0 = buildTable([1, 2, 3, 4], [1, 1, 1, 1], 1021, {
+    priorities: [0, 0, 1, 1],
+    healths: [HEALTHY, HEALTHY, HEALTHY, HEALTHY],
+  });
+  const p0 = new Set(healthyP0.table.filter((b) => b >= 0));
+  check(
+    'priority 0 serves while healthy',
+    p0.has(1) && p0.has(2) && !p0.has(3) && !p0.has(4),
+    `present=${[...p0].sort((a, b) => a - b)}`,
+  );
+
+  const failover = buildTable([1, 2, 3, 4], [1, 1, 1, 1], 1021, {
+    priorities: [0, 0, 1, 1],
+    healths: [0, 0, HEALTHY, HEALTHY],
+  });
+  const p1 = new Set(failover.table.filter((b) => b >= 0));
+  check(
+    'failover to priority 1 when P0 down',
+    p1.has(3) && p1.has(4) && !p1.has(1) && !p1.has(2),
+    `present=${[...p1].sort((a, b) => a - b)}`,
   );
 }
 

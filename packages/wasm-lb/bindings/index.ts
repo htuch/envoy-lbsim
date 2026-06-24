@@ -30,7 +30,20 @@ export interface EmbindVector<T> {
 
 /** One real Envoy LB instance as Embind exposes it (raw-pointer handle). */
 interface EmbindLb {
-  updateHosts(backends: EmbindVector<number>, weights: EmbindVector<number>): void;
+  /**
+   * Hand the full resolved host set to the real Envoy base as parallel arrays.
+   * The base does the health/priority/locality/panic resolution itself, so we
+   * pass every host with its health ordinal, priority, and locality, not a
+   * pre-filtered list.
+   */
+  updateHosts(
+    backends: EmbindVector<number>,
+    weights: EmbindVector<number>,
+    healths: EmbindVector<number>,
+    priorities: EmbindVector<number>,
+    regions: EmbindVector<string>,
+    zones: EmbindVector<string>,
+  ): void;
   chooseHost(hash: number): number;
   inspect(): LbStructure;
   delete(): void;
@@ -40,26 +53,20 @@ interface EmbindLb {
 export interface WasmLbModule {
   VectorInt: new () => EmbindVector<number>;
   VectorDouble: new () => EmbindVector<number>;
-  createMaglevLb(tableSize: number, useHostname: boolean): EmbindLb;
+  VectorString: new () => EmbindVector<string>;
+  createMaglevLb(
+    tableSize: number,
+    useHostname: boolean,
+    healthyPanicThreshold: number,
+    overprovisioningFactor: number,
+    seed: number,
+  ): EmbindLb;
 }
 
 type WasmLbModuleFactory = () => Promise<WasmLbModule>;
 
 /** Relative path (from this file) to the built Emscripten ES module. */
 export const ARTIFACT_URL = new URL('../build/lb.mjs', import.meta.url);
-
-/** Health ordinal for a healthy host (Envoy Host::Health). */
-const HEALTH_HEALTHY = 2;
-
-/**
- * Resolve the host set the policy should balance over. Mirrors Envoy's behavior:
- * normally the healthy hosts; if none are healthy the LB falls into panic mode
- * and routes across all hosts rather than dropping traffic.
- */
-function eligibleHosts(set: WasmHostSet): WasmHostSet['hosts'] {
-  const healthy = set.hosts.filter((h) => h.health === HEALTH_HEALTHY);
-  return healthy.length > 0 ? healthy : set.hosts;
-}
 
 // The loaded Embind module, shared by all instances (one Wasm module, many LBs).
 let wasmModule: WasmLbModule | undefined;
@@ -68,18 +75,26 @@ let wasmModule: WasmLbModule | undefined;
 function adapt(mod: WasmLbModule, lb: EmbindLb): LbInstance {
   return {
     updateHosts(set: WasmHostSet): void {
-      const hosts = eligibleHosts(set);
       const backends = new mod.VectorInt();
       const weights = new mod.VectorDouble();
+      const healths = new mod.VectorInt();
+      const priorities = new mod.VectorInt();
+      const regions = new mod.VectorString();
+      const zones = new mod.VectorString();
       try {
-        for (const h of hosts) {
+        // Pass the full set; the real Envoy base partitions by health/priority and
+        // applies panic/locality itself.
+        for (const h of set.hosts) {
           backends.push_back(h.backend);
           weights.push_back(h.weight);
+          healths.push_back(h.health);
+          priorities.push_back(h.priority);
+          regions.push_back(h.region);
+          zones.push_back(h.zone);
         }
-        lb.updateHosts(backends, weights);
+        lb.updateHosts(backends, weights, healths, priorities, regions, zones);
       } finally {
-        backends.delete();
-        weights.delete();
+        for (const v of [backends, weights, healths, priorities, regions, zones]) v.delete();
       }
     },
     chooseHost(ctx: WasmLbContext): BackendId {
@@ -117,10 +132,19 @@ export async function loadLbModule(): Promise<LbModule> {
 
   const mod = wasmModule;
   return {
-    createLb(policy: EnvoyLbPolicy, _common: CommonLbConfig, _seed: number): LbInstance {
+    createLb(policy: EnvoyLbPolicy, common: CommonLbConfig, seed: number): LbInstance {
       switch (policy.kind) {
         case 'maglev':
-          return adapt(mod, mod.createMaglevLb(policy.tableSize, false));
+          return adapt(
+            mod,
+            mod.createMaglevLb(
+              policy.tableSize,
+              false,
+              common.healthyPanicThresholdPercent,
+              common.overprovisioningFactor,
+              seed,
+            ),
+          );
         default:
           // ring_hash and the EDF-base policies (round_robin/least_request/random)
           // are not lifted yet; the kernel uses its mock for those until they land.

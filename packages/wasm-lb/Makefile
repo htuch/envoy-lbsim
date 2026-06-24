@@ -32,8 +32,15 @@ EMFLAGS := -std=c++20 -O2 -lembind \
 INCLUDES := -Ishim -I$(ENVOY) -I$(ABSL) -Ivendor
 DEFINES  := -DXXH_INLINE_ALL
 
-# The real Envoy policy implementations compiled in place (untouched).
-ENVOY_LB := $(ENVOY)/source/extensions/load_balancing_policies/maglev/maglev_lb.cc
+# The real Envoy LB base + policy implementations compiled in place (untouched).
+# The base (load_balancer_impl + thread_aware + locality_wrr) is lifted, not
+# shimmed, so Envoy's real priority/panic/locality/weight logic runs; the shim/
+# headers shadow only its leaf interfaces. See docs/STATUS.md Track A.
+LB_DIR   := $(ENVOY)/source/extensions/load_balancing_policies
+ENVOY_LB := $(LB_DIR)/common/load_balancer_impl.cc \
+            $(LB_DIR)/common/thread_aware_lb_impl.cc \
+            $(LB_DIR)/common/locality_wrr.cc \
+            $(LB_DIR)/maglev/maglev_lb.cc
 
 SHIM_HDRS := $(shell find shim -name '*.h') vendor/xxhash.h
 

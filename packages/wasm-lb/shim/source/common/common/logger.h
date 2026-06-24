@@ -1,5 +1,6 @@
 #pragma once
 // Shim of source/common/common/logger.h. Provides the Logger::Loggable<Id> base
+#include "fmt/core.h"
 // and ENVOY_LOG* macros as no-ops so real Envoy code that logs compiles and runs
 // without spdlog. The Id enum lists the ids referenced by lifted code; extend as
 // more files are pulled in.
@@ -43,3 +44,6 @@ protected:
 #define ENVOY_LOG_ONCE(...) (static_cast<void>(0))
 #define ENVOY_LOG_CHECK_LEVEL(...) (false)
 #define ENVOY_FLUSH_LOG() (static_cast<void>(0))
+
+#define FINE_GRAIN_LOG(...) (static_cast<void>(0))
+#define ENVOY_LOG_EVERY_POW_2_MISC(...) (static_cast<void>(0))

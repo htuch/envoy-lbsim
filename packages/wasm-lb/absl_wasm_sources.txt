@@ -119,3 +119,16 @@ absl/strings/internal/str_format/parser.cc
 absl/strings/internal/str_format/extension.cc
 absl/strings/internal/str_format/arg.cc
 absl/strings/internal/str_format/bind.cc
+
+# Added for the LB-base lift: the base pulls absl::Cord (via absl::Status
+# payloads / string building), which needs the CRC sources, and this toolchain's
+# per_thread_sem selects the pthread waiter (emscripten provides single-threaded
+# pthread stubs, so it links and never actually blocks).
+absl/crc/crc32c.cc
+absl/crc/internal/cpu_detect.cc
+absl/crc/internal/crc.cc
+absl/crc/internal/crc_cord_state.cc
+absl/crc/internal/crc_memcpy_fallback.cc
+absl/crc/internal/crc_non_temporal_memcpy.cc
+absl/synchronization/internal/pthread_waiter.cc
+absl/crc/internal/crc_x86_arm_combined.cc
