@@ -61,10 +61,34 @@ export const RingHashPolicy = z.object({
   useHostnameForHashing: z.boolean().default(false),
 });
 
+/**
+ * Primality test by trial division. Adequate for Maglev table sizes (up to a
+ * few million): `n < 2` is not prime, 2 is, and we reject even numbers before
+ * scanning odd divisors up to sqrt(n).
+ */
+export function isPrime(n: number): boolean {
+  if (!Number.isInteger(n) || n < 2) return false;
+  if (n === 2) return true;
+  if (n % 2 === 0) return false;
+  for (let d = 3; d * d <= n; d += 2) {
+    if (n % d === 0) return false;
+  }
+  return true;
+}
+
 export const MaglevPolicy = z.object({
   kind: z.literal('maglev'),
   /** Lookup table size. Must be prime; Envoy default 65537, max 5000011. */
-  tableSize: z.number().int().min(2).max(5_000_011).default(65537),
+  tableSize: z
+    .number()
+    .int()
+    .min(2)
+    .max(5_000_011)
+    .refine(isPrime, {
+      message:
+        'Maglev table size must be prime (Envoy requires it). Nearby primes: 4093, 4099, 65537.',
+    })
+    .default(65537),
 });
 
 export const EnvoyLbPolicy = z.discriminatedUnion('kind', [

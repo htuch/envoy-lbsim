@@ -10,6 +10,7 @@ import { TimelineStrip } from '@/components/timeline/TimelineStrip';
 import { TopologyModal } from '@/components/topology/TopologyModal';
 import type { TopologySnapshot } from '@/components/topology/types';
 import { TransportBar } from '@/components/transport/TransportBar';
+import { ErrorModal } from '@/components/ui/ErrorModal';
 import { goodputSeries, lossSeries, selectedSeries } from '@/lib/derive';
 import type { Series } from '@/lib/series';
 import { frameToTopologySnapshot } from '@/lib/topology-snapshot';
@@ -257,6 +258,8 @@ export function App(): React.JSX.Element {
         selectedEnvoy={selectedEnvoy}
         onSelectEnvoy={setSelectedEnvoy}
       />
+
+      <ErrorModal />
     </div>
   );
 }

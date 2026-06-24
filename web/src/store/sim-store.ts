@@ -46,6 +46,14 @@ export interface SimStore {
   selectedEnvoy: number | null;
 
   /**
+   * A user-facing error message to surface in a modal, or null when none. Lives
+   * in store state (not a module global) so concurrent tests do not interfere.
+   * Config-validation and reload failures route here so they are never silently
+   * swallowed.
+   */
+  error: string | null;
+
+  /**
    * Monotonically-bumped version integer. Incremented on every {@link load} so
    * in-flight async reads against the old run can be identified and dropped.
    */
@@ -91,6 +99,10 @@ export interface SimStore {
   setSelection: (selection: TimelineSelection) => void;
   /** Update the selected Envoy replica index, or `null` to deselect. */
   setSelectedEnvoy: (i: number | null) => void;
+  /** Surface an error message in the modal. */
+  raiseError: (message: string) => void;
+  /** Dismiss the active error message. */
+  clearError: () => void;
   /**
    * Fetch window aggregate and latency samples for the given query in parallel.
    * Drops the result if the run handle changed (a `load()` happened mid-flight).
@@ -131,6 +143,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   ready: false,
   selection: null,
   selectedEnvoy: 0,
+  error: null,
   handle: 0,
   windowAggregate: null,
   windowSamples: null,
@@ -213,6 +226,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
   setSelection: (selection) => set({ selection }),
 
   setSelectedEnvoy: (i) => set({ selectedEnvoy: i }),
+
+  raiseError: (message) => set({ error: message }),
+
+  clearError: () => set({ error: null }),
 
   loadWindow: async (q) => {
     const { api } = get();

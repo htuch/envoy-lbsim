@@ -83,6 +83,32 @@ export function seekTimeFromPlot(u: ClickablePlot): number | null {
 }
 
 /**
+ * Trim a number to at most `sig` significant digits, then drop any trailing
+ * zeros and a dangling decimal point. Keeps "1.5" as "1.5" but "14.0" as "14".
+ */
+function trimSignificant(value: number, sig: number): string {
+  // toPrecision can yield exponential notation for large magnitudes; the
+  // callers below always divide into the [0, 1000) range first, so a plain
+  // fixed-significant render is safe here.
+  const s = value.toPrecision(sig);
+  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+}
+
+/**
+ * Compact y-axis tick formatter. Goodput/loss strips reach the thousands, where
+ * uPlot's default comma grouping renders "14,000" that clips and reads as
+ * ",000". Instead: >=1e6 -> "1.5M", >=1e3 -> "14k"/"1.5k", and <1000 -> a short
+ * decimal with no thousands separators ("999", "42", "0.25"). Pure, so the
+ * boundaries are unit-testable.
+ */
+export function formatCompactTick(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1e6) return `${trimSignificant(value / 1e6, 3)}M`;
+  if (abs >= 1e3) return `${trimSignificant(value / 1e3, 3)}k`;
+  return trimSignificant(value, 3);
+}
+
+/**
  * Build dense, axis-light uPlot options for one gauge strip: `entityCount` line
  * series over a virtual-time (seconds) x axis, no legend, hairline grid. When
  * `sync` is supplied the strip joins the lock-step zoom group: drag brushes a
@@ -143,6 +169,9 @@ export function makeTimelineOpts(
         ticks: { stroke: axisColor, width: 1 },
         font: '10px ui-monospace, monospace',
         size: 40,
+        // Compact tick labels so thousands render as "14k" rather than the
+        // default comma-grouped "14,000" that clips in the narrow gutter.
+        values: (_u, splits) => splits.map(formatCompactTick),
       },
     ],
   };

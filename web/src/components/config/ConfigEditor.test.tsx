@@ -79,12 +79,35 @@ describe('ConfigEditor', () => {
     expect(useSimStore.getState().status.state).toBe('paused');
   });
 
-  it('shows a validation error for an out-of-range config', async () => {
+  it('raises a validation error in the store for an out-of-range config', async () => {
     render(<ConfigEditor />);
     fireEvent.change(screen.getByLabelText('Duration (ms)'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply & reload' }));
-    await screen.findByText(/Too small|greater than|positive|>/i);
+    await waitFor(() => expect(useSimStore.getState().error).toBeTruthy());
+    expect(useSimStore.getState().error).toMatch(/Too small|greater than|positive|>/i);
     expect(useSimStore.getState().ready).toBe(false);
+  });
+
+  it('raises a reload error when the worker rejects loadConfig (e.g. Envoy aborts)', async () => {
+    const runner = attach();
+    // Simulate the real failure mode: a schema-valid config that the worker
+    // still rejects deep in the Wasm LB. The catch path must surface it.
+    runner.loadConfig = () => Promise.reject(new Error('Maglev abort'));
+    render(<ConfigEditor />);
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & reload' }));
+    await waitFor(() => expect(useSimStore.getState().error).toBeTruthy());
+    expect(useSimStore.getState().error).toContain('Reload failed: Maglev abort');
+    expect(useSimStore.getState().ready).toBe(false);
+  });
+
+  it('edits the ring_hash maximumRingSize and keeps the draft schema-valid', () => {
+    render(<ConfigEditor />);
+    fireEvent.change(screen.getByLabelText('LB policy'), { target: { value: 'ring_hash' } });
+    fireEvent.change(screen.getByLabelText('Max ring'), { target: { value: '16384' } });
+    expect(useSimStore.getState().config.envoys.policy).toMatchObject({
+      maximumRingSize: 16384,
+    });
+    expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
   });
 
   describe('Backend processing time (latency distribution)', () => {
@@ -193,6 +216,75 @@ describe('ConfigEditor', () => {
       });
       expect(screen.getByLabelText('Scale (ms)')).toBeInTheDocument();
       expect(screen.getByLabelText('Shape')).toBeInTheDocument();
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('edits uniform min/max and keeps the draft valid', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'uniform' },
+      });
+      fireEvent.change(screen.getByLabelText('Min (ms)'), { target: { value: '3' } });
+      fireEvent.change(screen.getByLabelText('Max (ms)'), { target: { value: '30' } });
+      expect(useSimStore.getState().config.backends.defaults.latency).toMatchObject({
+        kind: 'uniform',
+        min: 3,
+        max: 30,
+      });
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('edits normal stddev and keeps the draft valid', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'normal' },
+      });
+      fireEvent.change(screen.getByLabelText('Std dev (ms)'), { target: { value: '4' } });
+      expect(useSimStore.getState().config.backends.defaults.latency).toMatchObject({
+        kind: 'normal',
+        stddev: 4,
+      });
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('edits exponential rate and keeps the draft valid', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'exponential' },
+      });
+      fireEvent.change(screen.getByLabelText('Rate (events/ms)'), { target: { value: '0.2' } });
+      expect(useSimStore.getState().config.backends.defaults.latency).toMatchObject({
+        kind: 'exponential',
+        ratePerMs: 0.2,
+      });
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('edits lognormal mu/sigma and keeps the draft valid', () => {
+      render(<ConfigEditor />);
+      // Default is lognormal already.
+      fireEvent.change(screen.getByLabelText('Mu'), { target: { value: '2.5' } });
+      fireEvent.change(screen.getByLabelText('Sigma'), { target: { value: '0.6' } });
+      expect(useSimStore.getState().config.backends.defaults.latency).toMatchObject({
+        kind: 'lognormal',
+        mu: 2.5,
+        sigma: 0.6,
+      });
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('edits pareto scale/shape and keeps the draft valid', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'pareto' },
+      });
+      fireEvent.change(screen.getByLabelText('Scale (ms)'), { target: { value: '8' } });
+      fireEvent.change(screen.getByLabelText('Shape'), { target: { value: '3' } });
+      expect(useSimStore.getState().config.backends.defaults.latency).toMatchObject({
+        kind: 'pareto',
+        scale: 8,
+        shape: 3,
+      });
       expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
     });
 

@@ -10,7 +10,16 @@ import { createSimWorker } from './worker/client';
 // and prepare the default run before first paint. Track B swaps the worker URL.
 const { api } = createSimWorker();
 useSimStore.getState().attach(api);
-void useSimStore.getState().load();
+// Surface a boot load failure in the error modal rather than leaving an
+// unhandled rejection (e.g. the worker aborts on the default config).
+void useSimStore
+  .getState()
+  .load()
+  .catch((err: unknown) => {
+    useSimStore
+      .getState()
+      .raiseError(`Boot failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

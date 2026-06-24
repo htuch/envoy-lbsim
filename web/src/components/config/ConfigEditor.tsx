@@ -77,7 +77,7 @@ export function ConfigEditor(): React.JSX.Element {
   const config = useSimStore((s) => s.config);
   const setConfig = useSimStore((s) => s.setConfig);
   const load = useSimStore((s) => s.load);
-  const [error, setError] = useState<string | null>(null);
+  const raiseError = useSimStore((s) => s.raiseError);
   const [applying, setApplying] = useState(false);
 
   const update = (next: SimConfig): void => setConfig(next);
@@ -96,13 +96,17 @@ export function ConfigEditor(): React.JSX.Element {
   const apply = async (): Promise<void> => {
     const parsed = safeParseSimConfig(config);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'invalid configuration');
+      raiseError(parsed.error.issues[0]?.message ?? 'Invalid configuration');
       return;
     }
-    setError(null);
     setApplying(true);
     try {
       await load(parsed.data);
+    } catch (err) {
+      // A reload can reject deep in the worker (e.g. Envoy aborts on a Maglev
+      // table size the schema somehow let through). Surface it instead of
+      // letting the old run keep playing silently.
+      raiseError(`Reload failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setApplying(false);
     }
@@ -231,17 +235,30 @@ export function ConfigEditor(): React.JSX.Element {
           </Field>
         )}
         {policy.kind === 'ring_hash' && (
-          <Field label="Min ring" htmlFor="cfg-ring">
-            <NumberInput
-              id="cfg-ring"
-              value={policy.minimumRingSize}
-              min={1}
-              step={64}
-              onValueChange={(minimumRingSize) =>
-                setPolicy({ ...policy, minimumRingSize: Math.floor(minimumRingSize) })
-              }
-            />
-          </Field>
+          <>
+            <Field label="Min ring" htmlFor="cfg-ring">
+              <NumberInput
+                id="cfg-ring"
+                value={policy.minimumRingSize}
+                min={1}
+                step={64}
+                onValueChange={(minimumRingSize) =>
+                  setPolicy({ ...policy, minimumRingSize: Math.floor(minimumRingSize) })
+                }
+              />
+            </Field>
+            <Field label="Max ring" htmlFor="cfg-ring-max">
+              <NumberInput
+                id="cfg-ring-max"
+                value={policy.maximumRingSize}
+                min={1}
+                step={64}
+                onValueChange={(maximumRingSize) =>
+                  setPolicy({ ...policy, maximumRingSize: Math.floor(maximumRingSize) })
+                }
+              />
+            </Field>
+          </>
         )}
         {policy.kind === 'least_request' && (
           <Field label="Choices" htmlFor="cfg-choices">
@@ -432,7 +449,6 @@ export function ConfigEditor(): React.JSX.Element {
       </Section>
 
       <div className="pt-3">
-        {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
         <Button className="w-full" disabled={applying} onClick={() => void apply()}>
           {applying ? 'Applying…' : 'Apply & reload'}
         </Button>

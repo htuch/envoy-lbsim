@@ -3,7 +3,7 @@ import { parseSimConfig, SimConfig, safeParseSimConfig } from './config';
 import { defaultSimConfig } from './defaults';
 import { Distribution, KeyDistribution } from './distributions';
 import { BackendPool, BackendSpecOverride, resolveBackend } from './entities';
-import { EnvoyLbPolicy, LeastRequestPolicy, MaglevPolicy } from './lb-policies';
+import { EnvoyLbPolicy, isPrime, LeastRequestPolicy, MaglevPolicy } from './lb-policies';
 
 describe('SimConfig', () => {
   it('default scenario validates and materializes nested defaults', () => {
@@ -47,6 +47,25 @@ describe('EnvoyLbPolicy', () => {
   it('defaults maglev tableSize to the Envoy default and caps it', () => {
     expect(MaglevPolicy.parse({ kind: 'maglev' }).tableSize).toBe(65537);
     expect(MaglevPolicy.safeParse({ kind: 'maglev', tableSize: 5_000_012 }).success).toBe(false);
+  });
+
+  it('rejects a non-prime maglev tableSize and accepts primes (Envoy requires prime)', () => {
+    // 4096 is not prime: Envoy's Maglev aborts on a composite table size.
+    expect(MaglevPolicy.safeParse({ kind: 'maglev', tableSize: 4096 }).success).toBe(false);
+    expect(MaglevPolicy.parse({ kind: 'maglev', tableSize: 4099 }).tableSize).toBe(4099);
+    expect(MaglevPolicy.parse({ kind: 'maglev', tableSize: 65537 }).tableSize).toBe(65537);
+  });
+
+  it('isPrime handles edge cases and small numbers', () => {
+    expect(isPrime(-7)).toBe(false);
+    expect(isPrime(0)).toBe(false);
+    expect(isPrime(1)).toBe(false);
+    expect(isPrime(2)).toBe(true);
+    expect(isPrime(3)).toBe(true);
+    expect(isPrime(4)).toBe(false);
+    expect(isPrime(4096)).toBe(false);
+    expect(isPrime(4099)).toBe(true);
+    expect(isPrime(65537)).toBe(true);
   });
 
   it('discriminates policy kinds', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  formatCompactTick,
   makeTimelineOpts,
   SERIES_COLORS,
   seekTimeFromPlot,
@@ -7,6 +8,33 @@ import {
   seriesColor,
   type TimelineSync,
 } from './uplot-opts';
+
+describe('formatCompactTick', () => {
+  it('formats sub-thousand values as short decimals without separators', () => {
+    expect(formatCompactTick(0)).toBe('0');
+    expect(formatCompactTick(0.25)).toBe('0.25');
+    expect(formatCompactTick(0.5)).toBe('0.5');
+    expect(formatCompactTick(42)).toBe('42');
+    expect(formatCompactTick(250)).toBe('250');
+    expect(formatCompactTick(999)).toBe('999');
+  });
+
+  it('formats thousands with a k suffix to ~3 significant digits', () => {
+    expect(formatCompactTick(1000)).toBe('1k');
+    expect(formatCompactTick(1500)).toBe('1.5k');
+    expect(formatCompactTick(14000)).toBe('14k');
+  });
+
+  it('formats millions with an M suffix', () => {
+    expect(formatCompactTick(1.5e6)).toBe('1.5M');
+    expect(formatCompactTick(2e6)).toBe('2M');
+  });
+
+  it('handles negative values symmetrically', () => {
+    expect(formatCompactTick(-14000)).toBe('-14k');
+    expect(formatCompactTick(-0.25)).toBe('-0.25');
+  });
+});
 
 describe('seriesColor', () => {
   it('cycles the palette by index', () => {
@@ -23,6 +51,13 @@ describe('makeTimelineOpts', () => {
     expect(opts.width).toBe(800);
     expect(opts.height).toBe(96);
     expect(opts.axes).toHaveLength(2);
+  });
+
+  it('formats y-axis ticks compactly via the values callback', () => {
+    const opts = makeTimelineOpts(2, 800, 96);
+    const yAxis = opts.axes?.[1];
+    const values = yAxis?.values as (u: unknown, splits: number[]) => string[];
+    expect(values({}, [0, 1500, 14000, 1.5e6])).toEqual(['0', '1.5k', '14k', '1.5M']);
   });
 
   it('clamps non-positive sizes to at least one pixel', () => {
