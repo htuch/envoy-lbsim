@@ -450,13 +450,18 @@ public:
     out.set("kind", std::string("ring"));
     // The real ketama ring (RingHashLoadBalancer::Ring::ring_) is private to the
     // lifted source, which we compile untouched. We expose the ring faithfully by
-    // probing the real worker LB at a bounded, evenly-spaced grid across the
-    // 64-bit hash space: each sample's owning backend is the real ring's answer,
-    // so the per-backend tallies are weight/health-accurate ownership shares. The
-    // sample positions stand in as ring points (the internal ring may hold up to
-    // maximumRingSize entries; this is the routing-observable view at SAMPLES
-    // resolution, which is what the inspector renders).
-    constexpr uint32_t kSamples = 4096;
+    // probing the real worker LB at an evenly-spaced grid across the 64-bit hash
+    // space: each sample's owning backend is the real ring's answer, so the
+    // per-backend tallies are weight/health-accurate ownership shares.
+    //
+    // The grid resolution TRACKS the configured ring size: Envoy sizes the real
+    // ring in [minimumRingSize, maximumRingSize], at least minimumRingSize points,
+    // so we sample at minimumRingSize positions (capped to bound the Embind
+    // payload; the view downsamples for drawing). This makes the inspector reflect
+    // minimumRingSize rather than a fixed grid. `size` is the sampled resolution.
+    constexpr uint32_t kMaxSamples = 32768;
+    const uint32_t configured = static_cast<uint32_t>(config_.minimum_ring_size().value());
+    const uint32_t kSamples = configured < kMaxSamples ? configured : kMaxSamples;
     emscripten::val entries = emscripten::val::array();
     int count = 0;
     if (worker_lb_) {

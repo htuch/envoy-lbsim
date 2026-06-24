@@ -1,5 +1,6 @@
 import type { RingHashInspection } from '@elbsim/protocol';
 import { useMemo } from 'react';
+import { useSimStore } from '@/store/sim-store';
 import { backendColor } from './colors';
 import { ringPoints } from './structure';
 
@@ -15,6 +16,15 @@ const OUTER = 92;
  * so weight skew in ring ownership is visible.
  */
 export function RingHashView({ ring }: { ring: RingHashInspection }): React.JSX.Element {
+  // The configured ring bounds drive the sampling resolution: the inspector
+  // probes the real (private) ketama ring at `minimumRingSize` evenly-spaced
+  // points, so `ring.size` tracks the configured minimum. Surface both bounds so
+  // the sampled grid is not mistaken for a fixed size.
+  const policy = useSimStore((s) => s.config.envoys.policy);
+  const bounds =
+    policy.kind === 'ring_hash'
+      ? { min: policy.minimumRingSize, max: policy.maximumRingSize }
+      : null;
   const ticks = useMemo(() => ringPoints(ring, MAX_TICKS), [ring]);
   const counts = useMemo(() => {
     const map = new Map<number, number>();
@@ -58,9 +68,16 @@ export function RingHashView({ ring }: { ring: RingHashInspection }): React.JSX.
 
       <div className="min-w-40 space-y-1">
         <p className="text-xs text-muted-foreground">
-          ring size <span className="font-mono tabular-nums text-foreground">{ring.size}</span>{' '}
+          sampled at <span className="font-mono tabular-nums text-foreground">{ring.size}</span>{' '}
           points
         </p>
+        {bounds && (
+          <p className="text-[11px] text-muted-foreground">
+            configured min{' '}
+            <span className="font-mono tabular-nums text-foreground">{bounds.min}</span> · max{' '}
+            <span className="font-mono tabular-nums text-foreground">{bounds.max}</span>
+          </p>
+        )}
         <ul className="space-y-0.5">
           {counts.map(([backend, count]) => (
             <li key={backend} className="flex items-center gap-1.5 text-xs">
