@@ -18,8 +18,11 @@ time by a TypeScript discrete-event kernel. See docs/PRD.md for the full why.
 - `packages/sim-core`: deterministic virtual-time kernel (runs in a Web Worker).
 - `packages/wasm-lb`: Envoy LB compiled to Wasm via an include-shadowing shim +
   Embind ABI.
+- `packages/cli`: headless Node CLI (bin `elbsim`) that drives the kernel without
+  the frontend and runs a per-LB validation suite (defaults to the real Wasm LB).
 - `third_party/envoy` (v1.36.0) and `third_party/abseil-cpp` (20260107.1) are
-  pinned submodules. Run `git submodule update --init` after cloning.
+  pinned submodules. Run `git submodule update --init` after cloning (or
+  `pnpm run wasm:build`, which self-bootstraps them).
 - Context bank: docs/PRD.md (why), docs/ARCHITECTURE.md (structure and the key
   decisions), docs/STATUS.md (what is done and what is next). Read
   ARCHITECTURE.md and STATUS.md before starting work.

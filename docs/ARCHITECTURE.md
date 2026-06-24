@@ -15,6 +15,8 @@ packages/
                       worker RPC, Wasm ABI types, inspection payloads)
   sim-core/           deterministic discrete-event kernel (TS), runs in a Worker
   wasm-lb/            Envoy LB compiled to Wasm via a shim + Embind ABI
+  cli/                headless Node CLI (bin `elbsim`): drives the kernel without
+                      the frontend; runs the per-LB validation suite
 third_party/
   envoy/              git submodule, pinned to v1.36.0
   abseil-cpp/         git submodule, pinned to 20260107.1 (matches Envoy)
@@ -23,7 +25,10 @@ third_party/
 The `packages/*` boundaries are deliberate: they are the seams along which
 independent work proceeds in parallel. `config` and `protocol` are pure
 contracts that everything else depends on and that change rarely; the other
-packages depend on them and can be built against mocks.
+packages depend on them and can be built against mocks. `cli` is a pure consumer:
+it drives `SimController`/`SimEngine` in-process (no Worker, no SAB), which is why
+`SimController` exposes synchronous `loadConfigSync`/`queryWindowSync` cores
+alongside the async `SimWorkerApi` methods that delegate to them.
 
 ## Core design decisions
 

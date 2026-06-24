@@ -14,7 +14,9 @@ Wasm through the real `LoadBalancerBase` / `ThreadAwareLoadBalancerBase` /
 `SimEngine` end to end (verified by a sim-core integration test). `sim-core` is a
 full discrete-event simulation behind `SimController`; the web app renders live
 timelines plus the topology/analysis/inspector views, all driven by the live
-store. The repo builds, type checks, lints, and tests green under the 95% gate.
+store. A headless Node CLI (`@elbsim/cli`) drives the whole simulator and runs a
+per-LB validation suite across all five real policies (see the Headless CLI
+section). The repo builds, type checks, lints, and tests green under the 95% gate.
 
 Remaining work: the web real-data integration (swap the synthetic worker for the
 real `SimController` so the analytical views are fed from real worker telemetry
@@ -163,23 +165,24 @@ prints per-backend distribution, goodput, and latency for a scenario;
 `elbsim validate` runs a per-LB validation suite covering expected
 distribution, consistency, least-request, and cross-cutting
 goodput/conservation/determinism plus a queryWindow-vs-recompute
-stats-aggregation cross-check. The default mode is REAL: lifted policies
-(maglev today) use the real Wasm LB; unlifted policies require --mock. Real-only
-checks SKIP on the mock and upgrade as Track A lands ring_hash and the EDF
-policies. `validate` with no --policy covers the lifted set (maglev today).
-`pnpm run wasm:build` self-bootstraps the Envoy and abseil submodules before
-building. It is an exploration tool, not a CI gate.
+stats-aggregation cross-check. The default mode is REAL: all five lifted policies
+run against the real Wasm LB. `validate` with no --policy covers them all.
+`--mock` forces the pure-TS stand-in (round-robin / hash-modulo) for running
+without a Wasm build or exercising the simulator/stats path alone; its weaker
+fidelity makes weight- and active-count-dependent checks (weighted, favors-idle)
+SKIP. `pnpm run wasm:build` self-bootstraps the Envoy and abseil submodules
+before building. It is an exploration tool, not a CI gate.
 
 Working invocations (the bin is the entry point; npm scripts delegate to it):
 
   node packages/cli/bin/elbsim.mjs validate
-  node packages/cli/bin/elbsim.mjs validate --policy maglev
+  node packages/cli/bin/elbsim.mjs validate --policy ring_hash
+  node packages/cli/bin/elbsim.mjs run --scenario default --policy least_request
   node packages/cli/bin/elbsim.mjs validate --mock
-  node packages/cli/bin/elbsim.mjs validate --mock --policy round_robin
-  node packages/cli/bin/elbsim.mjs run --scenario default --policy maglev
-  node packages/cli/bin/elbsim.mjs run --policy ring_hash --mock
+  node packages/cli/bin/elbsim.mjs run --policy maglev --mock
 
-Unlifted policies (ring_hash, round_robin, least_request, random) need --mock.
+`LIFTED_POLICIES` in `packages/cli/src/lb-select.ts` is the single source of
+truth for which policies have a real Wasm LB (currently all five).
 
 ## Next step
 
