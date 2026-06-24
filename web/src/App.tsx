@@ -1,42 +1,105 @@
-import { useState } from 'react';
+import { gaugeIndex } from '@elbsim/protocol';
+import { Maximize2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { ConfigEditor } from '@/components/config/ConfigEditor';
+import { Dock } from '@/components/dock/Dock';
+import { FleetHeatmap } from '@/components/fleet/FleetHeatmap';
+import { DerivedStrip } from '@/components/timeline/DerivedStrip';
 import { TimelineStrip } from '@/components/timeline/TimelineStrip';
+import { TopologyModal } from '@/components/topology/TopologyModal';
+import type { TopologySnapshot } from '@/components/topology/types';
 import { TransportBar } from '@/components/transport/TransportBar';
-import { Segmented } from '@/components/ui/segmented';
-import { type AnalyticalViewId, AnalyticalViews } from '@/components/views/AnalyticalViews';
+import { goodputSeries, lossSeries, selectedSeries } from '@/lib/derive';
+import type { Series } from '@/lib/series';
+import { frameToTopologySnapshot } from '@/lib/topology-snapshot';
+import { seriesColor } from '@/lib/uplot-opts';
 import { useSimStore } from '@/store/sim-store';
 
 /**
- * Application shell: a high-SNR control-panel layout. A schema-driven config
- * editor on the left, the playback transport pinned to the bottom, and a
- * switchable visualization surface in the center -- the live gauge timelines
- * (hot path, fed from the shared ring buffers) plus the Track D analytical views
- * (topology, cold-path analysis, LB inspector), all driven by the live store.
+ * The cockpit shell. A high-SNR instrument panel: the playback transport pinned
+ * to the top, a schema-driven config editor in the left rail, the dock (LB
+ * inspector / window analysis) as a real right-hand column, and the hero in the
+ * center -- a pinned fleet heatmap band over a vertically scrollable stack of
+ * live timelines.
+ *
+ * The hot path stays off React: gauge strips read the shared ring buffers in a
+ * 60fps rAF loop; only the low-rate heatmap snapshot (about 8Hz) and the
+ * control state flow through the store. The earlier tabbed view switcher is
+ * gone -- topology lives behind the heatmap's expand control (a modal), and the
+ * analysis/inspector views live in the dock.
  */
-const STRIPS = [
+
+// Per-entity gauge strips, fanned out one line per entity, grouped by tier.
+const GAUGE_STRIPS = [
   { kind: 'envoy', gauge: 'inFlight', label: 'Envoy · in-flight' },
   { kind: 'envoy', gauge: 'queueDepth', label: 'Envoy · queue depth' },
   { kind: 'backend', gauge: 'utilization', label: 'Backend · utilization' },
   { kind: 'backend', gauge: 'inFlight', label: 'Backend · in-flight' },
+  { kind: 'backend', gauge: 'latencyP99', label: 'Backend · latency p99' },
   { kind: 'client', gauge: 'emitRate', label: 'Client · emit rate' },
+  { kind: 'client', gauge: 'inFlight', label: 'Client · in-flight' },
 ] as const;
 
-const VIEWS = [
-  { value: 'timelines', label: 'Timelines' },
-  { value: 'topology', label: 'Topology' },
-  { value: 'analysis', label: 'Analysis' },
-  { value: 'inspector', label: 'Inspector' },
-] as const;
-type ViewId = (typeof VIEWS)[number]['value'];
+// Pre-resolve the selected-envoy latency gauge columns (stable indices).
+const ENVOY_P50 = gaugeIndex('envoy', 'latencyP50');
+const ENVOY_P90 = gaugeIndex('envoy', 'latencyP90');
+const ENVOY_P99 = gaugeIndex('envoy', 'latencyP99');
+
+/** Recompute cadence for the heatmap snapshot: ~8Hz, off the 60fps hot path. */
+const HEATMAP_TICK_MS = 125;
 
 export function App(): React.JSX.Element {
   const policy = useSimStore((s) => s.config.envoys.policy.kind);
   const state = useSimStore((s) => s.status.state);
-  const [view, setView] = useState<ViewId>('timelines');
+  const config = useSimStore((s) => s.config);
+  const rings = useSimStore((s) => s.rings);
+  const ready = useSimStore((s) => s.ready);
+  const selectedEnvoy = useSimStore((s) => s.selectedEnvoy);
+  const setSelectedEnvoy = useSimStore((s) => s.setSelectedEnvoy);
+
+  const [topologyOpen, setTopologyOpen] = useState(false);
+  const [snapshot, setSnapshot] = useState<TopologySnapshot | null>(null);
+
+  // Heatmap refresh: recompute the topology snapshot on a low-rate tick (the
+  // rings advance in shared memory, not through React, so we sample them). An
+  // immediate compute on mount/change avoids a blank band before the first tick;
+  // the interval keeps it fresh while the sim runs. Both the heatmap and the
+  // topology modal read this one snapshot.
+  useEffect(() => {
+    if (!ready || rings.size === 0) {
+      setSnapshot(null);
+      return;
+    }
+    const refresh = (): void => setSnapshot(frameToTopologySnapshot(config, rings));
+    refresh();
+    const id = setInterval(refresh, HEATMAP_TICK_MS);
+    return () => clearInterval(id);
+  }, [config, rings, ready]);
+
+  // Builders for the derived strips. Each reads the shared rings directly inside
+  // the rAF loop (see DerivedTimeline), so they never route 60fps frames through
+  // React. The latency builder follows `selectedEnvoy` via a revision remount.
+  const buildLatency = (): Series => {
+    const ring = rings.get('envoy');
+    if (!ring) return { x: [], ys: [] };
+    const p50 = selectedSeries(ring, ENVOY_P50, selectedEnvoy);
+    const p90 = selectedSeries(ring, ENVOY_P90, selectedEnvoy);
+    const p99 = selectedSeries(ring, ENVOY_P99, selectedEnvoy);
+    return { x: p50.x, ys: [p50.y, p90.y, p99.y] };
+  };
+  const buildGoodput = (): Series => {
+    const g = goodputSeries(rings);
+    return { x: g.x, ys: [g.y] };
+  };
+  const buildLosses = (): Series => {
+    const l = lossSeries(rings);
+    return { x: l.x, ys: [l.timeouts, l.envoyRejects, l.backendShed] };
+  };
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center justify-between border-b px-4 py-2">
+      <TransportBar />
+      <header className="flex items-center justify-between border-b px-4 py-1.5">
         <h1 className="text-sm font-semibold tracking-tight">Envoy LB Simulator</h1>
         <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
           {policy} · {state}
@@ -46,29 +109,108 @@ export function App(): React.JSX.Element {
         <aside className="w-72 shrink-0 overflow-y-auto border-r p-3">
           <ConfigEditor />
         </aside>
+
+        {/* Center hero: pinned heatmap band over the scrollable timeline stack. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-3 border-b px-3 py-2">
-            <Segmented ariaLabel="Visualization" options={VIEWS} value={view} onChange={setView} />
+          <div className="shrink-0 border-b p-3 pb-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Fleet load
+              </h2>
+              <button
+                type="button"
+                aria-label="Open topology graph"
+                title="Expand the topology graph"
+                onClick={() => setTopologyOpen(true)}
+                className="flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Maximize2 size={11} />
+                topology
+              </button>
+            </div>
+            {snapshot ? (
+              <FleetHeatmap
+                snapshot={snapshot}
+                selectedEnvoy={selectedEnvoy}
+                onSelectEnvoy={setSelectedEnvoy}
+              />
+            ) : (
+              <div className="flex h-20 items-center justify-center rounded-md border bg-card text-xs text-muted-foreground">
+                Load a config to populate the fleet.
+              </div>
+            )}
           </div>
-          {view === 'timelines' ? (
-            <main className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {STRIPS.map((s) => (
-                <TimelineStrip
-                  key={`${s.kind}:${s.gauge}`}
-                  kind={s.kind}
-                  gauge={s.gauge}
-                  label={s.label}
-                />
-              ))}
-            </main>
-          ) : (
-            <main className="min-h-0 flex-1 overflow-hidden">
-              <AnalyticalViews view={view as AnalyticalViewId} />
-            </main>
-          )}
-          <TransportBar />
+
+          <main className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {/* Envoy tier: gauges + the selected-envoy latency percentiles. */}
+            {GAUGE_STRIPS.filter((s) => s.kind === 'envoy').map((s) => (
+              <TimelineStrip
+                key={`${s.kind}:${s.gauge}`}
+                kind={s.kind}
+                gauge={s.gauge}
+                label={s.label}
+              />
+            ))}
+            <DerivedStrip
+              label={`Envoy · latency · e${selectedEnvoy}`}
+              lines={[
+                { label: 'p50', stroke: seriesColor(0) },
+                { label: 'p90', stroke: seriesColor(3) },
+                { label: 'p99', stroke: seriesColor(6) },
+              ]}
+              build={buildLatency}
+              revision={selectedEnvoy}
+            />
+
+            {/* Backend tier. */}
+            {GAUGE_STRIPS.filter((s) => s.kind === 'backend').map((s) => (
+              <TimelineStrip
+                key={`${s.kind}:${s.gauge}`}
+                kind={s.kind}
+                gauge={s.gauge}
+                label={s.label}
+              />
+            ))}
+
+            {/* Client tier. */}
+            {GAUGE_STRIPS.filter((s) => s.kind === 'client').map((s) => (
+              <TimelineStrip
+                key={`${s.kind}:${s.gauge}`}
+                kind={s.kind}
+                gauge={s.gauge}
+                label={s.label}
+              />
+            ))}
+
+            {/* Fleet tier: derived goodput and per-stage losses. */}
+            <DerivedStrip
+              label="Fleet · goodput"
+              lines={[{ label: 'goodput', stroke: seriesColor(5) }]}
+              build={buildGoodput}
+            />
+            <DerivedStrip
+              label="Fleet · losses by stage"
+              lines={[
+                { label: 'timeouts', stroke: seriesColor(6) },
+                { label: 'envoy rejects', stroke: seriesColor(3) },
+                { label: 'backend shed', stroke: seriesColor(1) },
+              ]}
+              build={buildLosses}
+            />
+          </main>
         </div>
+
+        {/* Right column: the dock manages its own width and resize divider. */}
+        <Dock />
       </div>
+
+      <TopologyModal
+        open={topologyOpen}
+        snapshot={snapshot ?? { t: 0, clients: [], envoys: [], backends: [], edges: [] }}
+        onClose={() => setTopologyOpen(false)}
+        selectedEnvoy={selectedEnvoy}
+        onSelectEnvoy={setSelectedEnvoy}
+      />
     </div>
   );
 }
