@@ -10,7 +10,15 @@
 
 EMXX    ?= em++
 ENVOY   ?= ../../third_party/envoy
+ABSL    ?= ../../third_party/abseil-cpp
 BUILD   ?= build
+
+# Curated abseil source subset (see absl_wasm_sources.txt for the why). Most
+# real Envoy LB code pulls in absl::flat_hash_map, which cascades into abseil
+# synchronization/time/debugging; these .cc compile that closure to Wasm. EDF
+# alone is abseil-free, so the smoke brick below does not link it. The
+# maglev/ring_hash and EDF-base policy targets (Track A) link $(ABSL_WASM_SRC).
+ABSL_WASM_SRC := $(addprefix $(ABSL)/,$(shell grep -vE '^\#|^[[:space:]]*$$' absl_wasm_sources.txt))
 
 # Single-threaded build -> no SharedArrayBuffer / COOP-COEP needed for the module
 # itself (the app uses SAB for telemetry ring buffers, a separate concern).
