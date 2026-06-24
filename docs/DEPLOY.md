@@ -27,7 +27,8 @@ production agree.
 
 The Envoy LB `.wasm` is served same-origin, so it loads fine under
 `Cross-Origin-Embedder-Policy: require-corp` with no extra per-resource header.
-(See "Future" below: the real Wasm LB is not yet wired into the web build.)
+(See "Building the Wasm LB before deploy" below: it must be built first or the
+deploy ships a non-functional worker.)
 
 Verify after a deploy:
 
@@ -131,14 +132,16 @@ into `web/dist`. The true end-to-end cross-origin-isolation check requires
 inspecting the response headers of the real Cloudflare Pages deployment (see
 "Cross-origin isolation" above).
 
-## Future: building the Wasm LB before deploy
+## Building the Wasm LB before deploy
 
-The real Envoy LB Wasm is not yet wired into the web build. The kernel
-currently uses a TypeScript mock (see docs/STATUS.md, Track A). When the real
-LB is wired in, the `.wasm` becomes a build artifact that must exist before the
-web build bundles it.
+The real Envoy LB Wasm drives the production worker, so the `.wasm` is a build
+artifact that must exist before the web build bundles it. `web/vite.config.ts`
+copies `packages/wasm-lb/build/lb.wasm` into the output; if it is missing the
+build still succeeds but logs a warning and ships a non-functional worker (the
+app loads but no policy can pick a host).
 
-At that point the deploy prerequisites grow by one step: build the Wasm first
-with an activated emsdk via `pnpm run wasm:build`, then run `make deploy` as
-usual so the freshly built `.wasm` is bundled into `web/dist`. Until then this
-is a future prerequisite, not a current deploy step.
+So a real deploy has one prerequisite beyond `.env`: build the Wasm first with
+an activated emsdk via `pnpm run wasm:build` (it self-bootstraps the Envoy and
+abseil submodules), then run `make deploy` so the freshly built `.wasm` is
+bundled into `web/dist`. `scripts/deploy.sh` does not build the Wasm itself, so
+skipping this step is the most likely way to ship a broken site.

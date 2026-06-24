@@ -13,11 +13,12 @@ overview and `docs/ARCHITECTURE.md` for how this app fits the whole.
   `transport/` (playback controls), `views/` (the C-D view switcher), `ui/`
   (shadcn primitives).
 - `src/worker/` the Comlink + SharedArrayBuffer bridge to the sim worker.
-  Today it spins up a synthetic telemetry worker (`mock-sim-worker.ts`) that
-  implements the real `SimWorkerApi`; the kernel worker is a drop-in swap at
-  one URL in `client.ts` once integration lands (see `docs/STATUS.md`).
-- `src/synthetic/` deterministic data generators that feed the analytical
-  views until they read real worker telemetry.
+  `client.ts` spins up the real kernel worker (`sim-worker.ts`), which composes
+  the real Wasm `LbModule` (`loadLbModule()`) behind `SimController`. The
+  synthetic stand-in (`mock-sim-worker.ts` / `runner.ts` / `synthetic.ts`)
+  survives only as a deterministic test fixture.
+- `src/synthetic/` deterministic data generators, now used only as test
+  fixtures; the live views read real worker telemetry.
 - `src/store/` the zustand store mirroring worker state.
 - `e2e/` Playwright specs for what units cannot prove (real canvas rendering,
   the live brush highlight, cross-origin isolation).

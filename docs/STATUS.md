@@ -146,10 +146,12 @@ Remaining (optional polish, not blocking):
   same x-window and freezes it while live data streams; a Reset control clears
   it. Driven by one shared `selection` in the store (not uPlot cursor-sync); the
   committed `{fromMs,toMs}` is the handoff to Track D's `queryWindow`.
-- Worker wiring (Comlink + SAB): a synthetic telemetry worker implements the
-  real `SimWorkerApi` and paces deterministic gauge frames into the rings under
-  transport control (`web/src/worker/`). Track B swaps the worker URL in
-  `web/src/worker/client.ts`; everything else is unchanged.
+- Worker wiring (Comlink + SAB): the app runs the real kernel worker behind the
+  `SimWorkerApi` contract, allocating the SAB rings and streaming gauge frames
+  under transport control. The worker URL is the single swap point in
+  `web/src/worker/client.ts`; during parallel development this pointed at a
+  synthetic telemetry worker, now at the real `sim-worker.ts` (see "Integration
+  done" below). Nothing else in the hot-path render loop changed across the swap.
 A Playwright E2E suite covers the behaviors units cannot (real canvas, the live
 brush highlight, cross-origin isolation): `web/e2e/timeline.spec.ts`, run with
 `pnpm --filter web test:e2e` (needs the browser once: `test:e2e:install`). Vitest
@@ -170,12 +172,12 @@ Three prop-driven views under `web/src/components/{topology,analysis,inspector}`
 - LB inspector rendering all four `LbStructure` kinds (EDF heap, Maglev table,
   hash ring, stateless) plus the resolved host set + panic badge.
 Now hosted in Track C's shell via `web/src/components/views/AnalyticalViews.tsx`
-(a visualization switcher in `App.tsx`), fed from the live store (config, playback
-time, configured policy, brushed selection). Data is still computed by the
-`web/src/synthetic/*` generators (a shared test fixture remains in
-`web/src/components/harness/scenario.ts`); see "Remaining" for the real-telemetry
-swap. Inspecting Envoy E at time T will call `requestInspection` (deterministic
-replay; see Design decisions) once wired to the real worker.
+(a visualization switcher in `App.tsx`), fed from the live store. The data is
+real worker telemetry: `frameToTopologySnapshot` for topology, `queryWindow` +
+`queryWindowLatencies` for the cold-path charts, and `requestInspection`
+(deterministic replay; see Design decisions) for the inspector. The
+`web/src/synthetic/*` generators and `web/src/components/harness/scenario.ts`
+survive only as test fixtures.
 
 ## Headless CLI (`@elbsim/cli`, bin `elbsim`) (DONE)
 
@@ -213,12 +215,13 @@ from real telemetry; `web/src/worker/sim-worker.ts` is the worker, wired at
 blocking): zone-aware locality bucketing and slow start (see Track A
 "Remaining").
 
-## Integration (after tracks)
+## Integration (DONE)
 
-Wire real Wasm into the kernel, the real kernel into the UI, and real inspection
-payloads into the inspector. The Playwright E2E harness is in place
-(`web/e2e/`, started in Track C); extend it across the full journeys (assemble
-scenario, run, brush a window, inspect an Envoy) as those land.
+Real Wasm drives the kernel, the real kernel drives the UI, and real inspection
+payloads feed the inspector. The Playwright E2E harness (`web/e2e/`, started in
+Track C) now includes a cockpit CUJ against the real Wasm worker; extend it
+across further journeys (assemble scenario, run, brush a window, inspect an
+Envoy) as new behaviors land.
 
 ## Design decisions (settled)
 

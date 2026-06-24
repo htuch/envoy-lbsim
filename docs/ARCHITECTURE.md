@@ -87,14 +87,15 @@ layer, SVG owns the expressive layer. The topology graph uses `@xyflow/react`
 (requests in flight) use a Canvas overlay, escalating to WebGL only if needed.
 
 The frontend (`web/`) talks only to the `SimWorkerApi` Comlink contract, never
-to a kernel directly. `sim-core`'s kernel worker (Track B) is built, but the web
-app is not yet wired to it; until that integration lands, a synthetic worker
-(`web/src/worker/mock-sim-worker.ts`) implements the same interface: it
-allocates the SAB rings and paces deterministic gauge frames into them under
-transport control, so the hot-path render loop and config editor run against the
-real contract. The kernel worker is a drop-in swap at one URL in
-`web/src/worker/client.ts`. This mirrors how `sim-core/mock-lb.ts` stands in for
-the Wasm LB: scaffolds live behind the durable interface, never alongside it.
+to a kernel directly. That contract is now served by the real kernel worker
+(`web/src/worker/sim-worker.ts`), which composes the real Wasm `LbModule`
+(`loadLbModule()`) behind `SimController` and is wired at one URL in
+`web/src/worker/client.ts`. The synthetic telemetry worker that stood in during
+parallel development (`mock-sim-worker.ts`, which allocated the SAB rings and
+paced deterministic gauge frames into them) survives only as a test fixture.
+This mirrors how `sim-core/mock-lb.ts` is now just the no-injection default and
+test stand-in for the Wasm LB: scaffolds live behind the durable interface,
+never alongside it in a user-facing path.
 
 ### 4. Reproducible Wasm build via submodules + em++ (no Bazel, no CMake)
 
@@ -131,9 +132,11 @@ the entity models; `controller.ts` (`SimController`) wraps it as the worker
 Per-entity hot-path latency uses a decaying log-bucket histogram
 (`histogram.ts`) feeding the appended latency gauge columns.
 
-`mock-lb.ts` implements the Wasm LB ABI in pure TS (round-robin / hash-modulo)
-so kernel and frontend work proceeds before the real Wasm module lands. It is a
-scaffold, never the production LB.
+`mock-lb.ts` implements the Wasm LB ABI in pure TS (round-robin / hash-modulo).
+The real Wasm `LbModule` now drives the engine in every user-facing path; the
+mock remains as `SimEngineOptions.lbModule`'s default when no module is injected,
+which keeps `sim-core` decoupled from `wasm-lb` at runtime and serves tests. It
+is a scaffold, never the production LB.
 
 ## Durable interfaces (the contracts parallel work depends on)
 
@@ -145,8 +148,8 @@ scaffold, never the production LB.
   - `worker-rpc.ts`: the Comlink `SimWorkerApi` (load/play/pause/step/seek/
     query/inspect) and the shared-buffer handles.
   - `wasm-abi.ts`: the `LbInstance` / `LbModule` Embind surface.
-  - `inspection.ts`: the `LbInspection` payload the inspector renders (EDF heap,
-    Maglev table, hash ring).
+  - `inspection.ts`: the `LbInspection` payload the inspector renders, one per
+    `LbStructure` kind (EDF heap, Maglev table, hash ring, stateless).
 
 Treat these as versioned. Appending fields is safe; changing shapes is a
 coordinated breaking change.
