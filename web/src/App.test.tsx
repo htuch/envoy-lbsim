@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSimStore } from '@/store/sim-store';
 import { MockSimRunner } from '@/worker/runner';
@@ -47,5 +47,24 @@ describe('App shell', () => {
     expect(screen.getByLabelText('Seed')).toBeInTheDocument();
     expect(screen.getByText('Envoy · in-flight')).toBeInTheDocument();
     expect(screen.getByLabelText('Play')).toBeInTheDocument();
+  });
+
+  it('switches the visualization surface between timelines and the analytical views', () => {
+    render(<App />);
+    // Default view is the live timelines.
+    expect(screen.getByText('Envoy · in-flight')).toBeInTheDocument();
+
+    // Switching to an analytical view replaces the timeline strips with it; the
+    // config editor and transport (the shell) stay mounted throughout.
+    for (const label of ['Topology', 'Analysis', 'Inspector']) {
+      fireEvent.click(screen.getByRole('radio', { name: label }));
+      expect(screen.queryByText('Envoy · in-flight')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Seed')).toBeInTheDocument();
+      expect(screen.getByLabelText('Play')).toBeInTheDocument();
+    }
+
+    // And back to the live timelines.
+    fireEvent.click(screen.getByRole('radio', { name: 'Timelines' }));
+    expect(screen.getByText('Envoy · in-flight')).toBeInTheDocument();
   });
 });

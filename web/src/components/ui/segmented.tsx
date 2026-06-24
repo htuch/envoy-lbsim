@@ -16,9 +16,9 @@ interface SegmentedProps<T extends string> {
 }
 
 /**
- * A compact segmented radio control. Used for the harness view switcher and the
- * inspector's policy selector. Keyboard- and screen-reader-accessible via the
- * radiogroup pattern, styled for the dense control-panel aesthetic.
+ * A compact segmented radio control. Used for the shell's visualization switcher
+ * and the inspector's policy selector. Keyboard- and screen-reader-accessible via
+ * the radiogroup pattern, styled for the dense control-panel aesthetic.
  */
 export function Segmented<T extends string>({
   options,
