@@ -253,7 +253,7 @@ describe('Dock', () => {
     );
   });
 
-  it('calls loadInspection when selectedEnvoy changes while paused', () => {
+  it('calls loadInspection exactly once when selectedEnvoy changes while paused', () => {
     useSimStore.setState({
       status: { state: 'paused', virtualTimeMs: 1000, speed: 1 },
       selectedEnvoy: 0,
@@ -263,6 +263,10 @@ describe('Dock', () => {
     act(() => {
       useSimStore.setState({ selectedEnvoy: 2 });
     });
+    // The envoy-change path is owned solely by the selectedEnvoy effect; the
+    // pause/step/seek effect must NOT also fire (it excludes selectedEnvoy from
+    // its deps). A double call here would mean duplicated cold-path work.
+    expect(loadInspectionSpy).toHaveBeenCalledTimes(1);
     expect(loadInspectionSpy).toHaveBeenCalledWith(2, 1000);
   });
 

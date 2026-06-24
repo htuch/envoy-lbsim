@@ -34,9 +34,11 @@ const DEFAULT_WIDTH = 380;
 export function Dock(): React.JSX.Element {
   // Initialize tab from the store so tests (and first-render) see the right
   // tab when the store is pre-seeded (e.g. a selection was already committed
-  // before the dock mounts). Effects below handle subsequent changes.
-  const initialSelection = useSimStore.getState().selection;
-  const [tab, setTab] = useState<DockTab>(initialSelection !== null ? 'window' : 'inspector');
+  // before the dock mounts). Lazy initializer reads the store once at mount;
+  // effects below handle subsequent changes.
+  const [tab, setTab] = useState<DockTab>(() =>
+    useSimStore.getState().selection !== null ? 'window' : 'inspector',
+  );
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const dragStartX = useRef(0);
@@ -68,13 +70,17 @@ export function Dock(): React.JSX.Element {
     void loadWindow(selection);
   }, [selection, loadWindow]);
 
-  // Keep refs in sync with the latest status/time so the selectedEnvoy effect
-  // below can read the current values without needing them as deps (adding them
-  // would fire this effect on every tick, which is intentionally avoided).
+  // Keep refs in sync with the latest slices so effects can read the current
+  // value without listing it as a dependency (which would mis-trigger the
+  // effect). statusState/virtualTimeMs back the selectedEnvoy effect;
+  // selectedEnvoy backs the pause/step/seek effect so a step/seek inspects the
+  // currently-selected envoy without the effect re-firing on envoy changes.
   const statusStateRef = useRef(statusState);
   const virtualTimeMsRef = useRef(virtualTimeMs);
+  const selectedEnvoyRef = useRef(selectedEnvoy);
   statusStateRef.current = statusState;
   virtualTimeMsRef.current = virtualTimeMs;
+  selectedEnvoyRef.current = selectedEnvoy;
 
   // --- Effect: selectedEnvoy change => focus Inspector + fetch inspection.
   // Skip tab focus on the initial mount (initial tab already derived from the
@@ -88,18 +94,20 @@ export function Dock(): React.JSX.Element {
   }, [selectedEnvoy, loadInspection]);
 
   // --- Effect: pause/step/seek => fetch inspection (gate: not running) ---
-  const prevStatusState = useRef(statusState);
+  // This effect owns ONLY the status/time transition path: it fires on
+  // pause/step/seek (statusState or virtualTimeMs change). selectedEnvoy is
+  // read via selectedEnvoyRef (not a dependency) so the envoy-change path stays
+  // owned solely by the selectedEnvoy effect above; the two triggers are
+  // disjoint, preventing a double loadInspection when both change together.
   useEffect(() => {
-    prevStatusState.current = statusState;
-
     if (statusState === 'running') return;
     // Fire on:
     // - transition from running to paused/finished
     // - virtualTimeMs change while already paused (e.g. step, seek)
     // Skip on initial mount -- the selectedEnvoy effect handles the first fetch.
     if (!mounted.current) return;
-    void loadInspection(selectedEnvoy, virtualTimeMs);
-  }, [statusState, virtualTimeMs, selectedEnvoy, loadInspection]);
+    void loadInspection(selectedEnvoyRef.current, virtualTimeMs);
+  }, [statusState, virtualTimeMs, loadInspection]);
 
   // Mark as mounted after all initial effects have had a chance to run.
   // useEffect cleanup order guarantees this runs after the above effects on mount.
