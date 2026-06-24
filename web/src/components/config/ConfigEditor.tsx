@@ -1,5 +1,7 @@
 import {
   ArrivalProcess,
+  type Distribution,
+  Distribution as DistributionSchema,
   type EnvoyLbPolicy,
   EnvoyLbPolicy as EnvoyLbPolicySchema,
   type SimConfig,
@@ -33,6 +35,27 @@ const POLICY_KINDS = [
   { value: 'maglev', label: 'Maglev' },
 ] as const;
 
+const LATENCY_DIST_KINDS = [
+  { value: 'constant', label: 'Constant' },
+  { value: 'uniform', label: 'Uniform' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'exponential', label: 'Exponential' },
+  { value: 'lognormal', label: 'Log-normal' },
+  { value: 'pareto', label: 'Pareto' },
+] as const;
+
+type LatencyKind = (typeof LATENCY_DIST_KINDS)[number]['value'];
+
+/** Schema-valid default object for each distribution kind. */
+const LATENCY_KIND_DEFAULTS: Record<LatencyKind, Distribution> = {
+  constant: { kind: 'constant', value: 10 },
+  uniform: { kind: 'uniform', min: 5, max: 20 },
+  normal: { kind: 'normal', mean: 10, stddev: 3 },
+  exponential: { kind: 'exponential', ratePerMs: 0.1 },
+  lognormal: { kind: 'lognormal', mu: 2.3, sigma: 0.4 },
+  pareto: { kind: 'pareto', scale: 5, shape: 2 },
+};
+
 function Section({
   title,
   children,
@@ -61,6 +84,15 @@ export function ConfigEditor(): React.JSX.Element {
   const setPolicy = (policy: EnvoyLbPolicy): void =>
     update({ ...config, envoys: { ...config.envoys, policy } });
 
+  const setLatency = (latency: Distribution): void =>
+    update({
+      ...config,
+      backends: {
+        ...config.backends,
+        defaults: { ...config.backends.defaults, latency },
+      },
+    });
+
   const apply = async (): Promise<void> => {
     const parsed = safeParseSimConfig(config);
     if (!parsed.success) {
@@ -77,6 +109,7 @@ export function ConfigEditor(): React.JSX.Element {
   };
 
   const policy = config.envoys.policy;
+  const latency = config.backends.defaults.latency;
 
   return (
     <div className="flex flex-col">
@@ -254,6 +287,134 @@ export function ConfigEditor(): React.JSX.Element {
             }
           />
         </Field>
+        <Field label="Processing time (ms)">
+          <Select
+            aria-label="Backend processing time distribution kind"
+            value={latency.kind}
+            options={[...LATENCY_DIST_KINDS]}
+            onChange={(e) => {
+              const kind = e.target.value as LatencyKind;
+              setLatency(DistributionSchema.parse(LATENCY_KIND_DEFAULTS[kind]));
+            }}
+          />
+        </Field>
+        {latency.kind === 'constant' && (
+          <Field label="Value (ms)" htmlFor="cfg-latency-value">
+            <NumberInput
+              id="cfg-latency-value"
+              value={latency.value}
+              min={0}
+              step={1}
+              onValueChange={(value) => setLatency({ kind: 'constant', value })}
+            />
+          </Field>
+        )}
+        {latency.kind === 'uniform' && (
+          <>
+            <Field label="Min (ms)" htmlFor="cfg-latency-min">
+              <NumberInput
+                id="cfg-latency-min"
+                value={latency.min}
+                min={0}
+                step={1}
+                onValueChange={(min) => setLatency({ kind: 'uniform', min, max: latency.max })}
+              />
+            </Field>
+            <Field label="Max (ms)" htmlFor="cfg-latency-max">
+              <NumberInput
+                id="cfg-latency-max"
+                value={latency.max}
+                min={0}
+                step={1}
+                onValueChange={(max) => setLatency({ kind: 'uniform', min: latency.min, max })}
+              />
+            </Field>
+          </>
+        )}
+        {latency.kind === 'normal' && (
+          <>
+            <Field label="Mean (ms)" htmlFor="cfg-latency-mean">
+              <NumberInput
+                id="cfg-latency-mean"
+                value={latency.mean}
+                min={0}
+                step={1}
+                onValueChange={(mean) =>
+                  setLatency({ kind: 'normal', mean, stddev: latency.stddev })
+                }
+              />
+            </Field>
+            <Field label="Std dev (ms)" htmlFor="cfg-latency-stddev">
+              <NumberInput
+                id="cfg-latency-stddev"
+                value={latency.stddev}
+                min={0}
+                step={0.1}
+                onValueChange={(stddev) =>
+                  setLatency({ kind: 'normal', mean: latency.mean, stddev })
+                }
+              />
+            </Field>
+          </>
+        )}
+        {latency.kind === 'exponential' && (
+          <Field label="Rate (events/ms)" htmlFor="cfg-latency-rate">
+            <NumberInput
+              id="cfg-latency-rate"
+              value={latency.ratePerMs}
+              min={0.0001}
+              step={0.01}
+              onValueChange={(ratePerMs) => setLatency({ kind: 'exponential', ratePerMs })}
+            />
+          </Field>
+        )}
+        {latency.kind === 'lognormal' && (
+          <>
+            <Field label="Mu" htmlFor="cfg-latency-mu">
+              <NumberInput
+                id="cfg-latency-mu"
+                value={latency.mu}
+                step={0.1}
+                onValueChange={(mu) => setLatency({ kind: 'lognormal', mu, sigma: latency.sigma })}
+              />
+            </Field>
+            <Field label="Sigma" htmlFor="cfg-latency-sigma">
+              <NumberInput
+                id="cfg-latency-sigma"
+                value={latency.sigma}
+                min={0.0001}
+                step={0.1}
+                onValueChange={(sigma) => setLatency({ kind: 'lognormal', mu: latency.mu, sigma })}
+              />
+            </Field>
+          </>
+        )}
+        {latency.kind === 'pareto' && (
+          <>
+            <Field label="Scale (ms)" htmlFor="cfg-latency-scale">
+              <NumberInput
+                id="cfg-latency-scale"
+                value={latency.scale}
+                min={0.0001}
+                step={1}
+                onValueChange={(scale) =>
+                  setLatency({ kind: 'pareto', scale, shape: latency.shape })
+                }
+              />
+            </Field>
+            <Field label="Shape" htmlFor="cfg-latency-shape">
+              <NumberInput
+                id="cfg-latency-shape"
+                value={latency.shape}
+                min={0.0001}
+                step={0.1}
+                onValueChange={(shape) =>
+                  setLatency({ kind: 'pareto', scale: latency.scale, shape })
+                }
+              />
+            </Field>
+          </>
+        )}
       </Section>
 
       <Section title="Timeouts">

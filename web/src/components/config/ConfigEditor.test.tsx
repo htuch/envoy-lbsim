@@ -1,3 +1,4 @@
+import { safeParseSimConfig } from '@elbsim/config';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useSimStore } from '@/store/sim-store';
@@ -84,5 +85,128 @@ describe('ConfigEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply & reload' }));
     await screen.findByText(/Too small|greater than|positive|>/i);
     expect(useSimStore.getState().ready).toBe(false);
+  });
+
+  describe('Backend processing time (latency distribution)', () => {
+    it('renders a distribution kind Select for backend processing time', () => {
+      render(<ConfigEditor />);
+      expect(
+        screen.getByLabelText('Backend processing time distribution kind'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the current kind matching the default config latency', () => {
+      render(<ConfigEditor />);
+      const select = screen.getByLabelText(
+        'Backend processing time distribution kind',
+      ) as HTMLSelectElement;
+      const defaultLatency = useSimStore.getState().config.backends.defaults.latency;
+      expect(select.value).toBe(defaultLatency.kind);
+    });
+
+    it('changing kind to constant sets a valid constant latency and updates the store', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'constant' },
+      });
+      const latency = useSimStore.getState().config.backends.defaults.latency;
+      expect(latency.kind).toBe('constant');
+      expect('value' in latency && typeof latency.value === 'number').toBe(true);
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('changing kind to normal sets a valid normal latency with mean and stddev', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'normal' },
+      });
+      const latency = useSimStore.getState().config.backends.defaults.latency;
+      expect(latency.kind).toBe('normal');
+      expect('mean' in latency && 'stddev' in latency).toBe(true);
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows param fields for constant kind and editing value updates the store', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'constant' },
+      });
+      expect(screen.getByLabelText('Value (ms)')).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('Value (ms)'), { target: { value: '25' } });
+      const latency = useSimStore.getState().config.backends.defaults.latency;
+      expect(latency.kind).toBe('constant');
+      expect('value' in latency && latency.value).toBe(25);
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows param fields for normal kind and editing mean updates the store', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'normal' },
+      });
+      expect(screen.getByLabelText('Mean (ms)')).toBeInTheDocument();
+      expect(screen.getByLabelText('Std dev (ms)')).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('Mean (ms)'), { target: { value: '50' } });
+      const latency = useSimStore.getState().config.backends.defaults.latency;
+      expect(latency.kind).toBe('normal');
+      expect('mean' in latency && latency.mean).toBe(50);
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows correct params for uniform kind', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'uniform' },
+      });
+      expect(screen.getByLabelText('Min (ms)')).toBeInTheDocument();
+      expect(screen.getByLabelText('Max (ms)')).toBeInTheDocument();
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows correct params for exponential kind', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'exponential' },
+      });
+      expect(screen.getByLabelText('Rate (events/ms)')).toBeInTheDocument();
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows correct params for lognormal kind', () => {
+      render(<ConfigEditor />);
+      // default is already lognormal, so no kind change needed
+      const latency = useSimStore.getState().config.backends.defaults.latency;
+      if (latency.kind !== 'lognormal') {
+        fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+          target: { value: 'lognormal' },
+        });
+      }
+      expect(screen.getByLabelText('Mu')).toBeInTheDocument();
+      expect(screen.getByLabelText('Sigma')).toBeInTheDocument();
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('shows correct params for pareto kind', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'pareto' },
+      });
+      expect(screen.getByLabelText('Scale (ms)')).toBeInTheDocument();
+      expect(screen.getByLabelText('Shape')).toBeInTheDocument();
+      expect(safeParseSimConfig(useSimStore.getState().config).success).toBe(true);
+    });
+
+    it('only shows param fields for the current kind (no cross-kind leakage)', () => {
+      render(<ConfigEditor />);
+      fireEvent.change(screen.getByLabelText('Backend processing time distribution kind'), {
+        target: { value: 'constant' },
+      });
+      // constant fields visible, normal fields not
+      expect(screen.getByLabelText('Value (ms)')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Mean (ms)')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Std dev (ms)')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Min (ms)')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Rate (events/ms)')).not.toBeInTheDocument();
+    });
   });
 });
