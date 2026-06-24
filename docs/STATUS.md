@@ -103,14 +103,16 @@ Remaining (optional polish, not blocking):
   active counts/service latency); timeouts and goodput.
 - Emits the `RequestEvent` stream; writes per-entity gauge frames each
   `sampleIntervalMs`, including appended latency percentile columns.
-- Hosts the LB behind the Wasm ABI via `mockLbModule`. `SimController` does
-  play/pause/step/seek (backward seek = deterministic replay into the same
-  shared buffers), `queryWindow` (cohort-based cold-path aggregates), and
-  `requestInspection` (replay-to-T then `inspect()`).
-- Not yet exercised here: retries (see follow-ups); zone-aware locality LB
-  routing logic (locality is plumbed through the ABI, but routing is left to
-  Track A); least_request weighting (the mock falls back to round_robin, but the
-  engine feeds live per-host active counts so the real policy will work).
+- Hosts the LB behind the Wasm ABI: `SimEngineOptions.lbModule` (default
+  `mockLbModule`) takes either the TS mock or the real Wasm `LbModule`; the real
+  one drives the engine for every policy (Track A `engine.wasm.test.ts`).
+  `SimController` does play/pause/step/seek (backward seek = deterministic replay
+  into the same shared buffers), `queryWindow` (cohort-based cold-path
+  aggregates), and `requestInspection` (replay-to-T then `inspect()`).
+- Not yet exercised here: retries (see follow-ups); zone-aware locality LB routing
+  (locality is plumbed through the ABI, but bucketing is Track A polish). The
+  engine feeds live per-host active counts via `updateHosts`, so the real lifted
+  least_request reads them at pick time.
 
 ### Track C: frontend shell and hot path (DONE)
 - Control-panel layout (`web/src/App.tsx`); schema-driven config editor over
@@ -198,16 +200,16 @@ scenario, run, brush a window, inspect an Envoy) as those land.
 - least_request active-count transport (resolved in Track B): the engine keeps
   live per-Envoy per-backend active counts and refreshes the host set via
   `updateHosts` before each pick, so `WasmHost.activeRequests` is current at
-  `chooseHost` time. No ABI change was needed. (Track A side: feed it into the
-  lifted base's `host.stats().rq_active_` when least_request is lifted; maglev
-  passes 0.)
+  `chooseHost` time. Track A carries it as the 7th `updateHosts` vector into the
+  lifted base's `host.stats().rq_active_`, which the real least_request reads at
+  pick time; the other policies pass it through but ignore it.
 - Track A LIFTS Envoy's real `LoadBalancerBase` / `ThreadAwareLoadBalancerBase`
   (compiling the base `.cc` untouched) rather than shimming them, so panic/
   priority/locality/weight-normalization are Envoy's own code. An earlier cut
   shimmed the base and resolved the host set in TS; reverted in review as lower
   fidelity and because it left the `WasmHost` health/priority/locality fields
-  unused. The cost is shadowing the leaf interfaces the base touches; this also
-  unblocks ring_hash and the EDF policies (same base). The one deliberate stub is
+  unused. The cost is shadowing the leaf interfaces the base touches; the same
+  base now drives ring_hash and the EDF policies too. The one deliberate stub is
   the request-hashing HTTP path (`HashPolicyImpl`/cookie/header): the kernel
   supplies the hash via `computeHashKey()`, so that subsystem is compile-only.
 - C-D frontend reconciliation: Track C and Track D built the frontend on diverged
