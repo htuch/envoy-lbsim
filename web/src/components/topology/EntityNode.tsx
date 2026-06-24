@@ -82,14 +82,7 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>): React
         </div>
       )}
 
-      {status.kind === 'backend' && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="!h-1.5 !w-1.5 !border-0 !bg-muted-foreground/50"
-        />
-      )}
-      {isEnvoy && (
+      {status.kind !== 'backend' && (
         <Handle
           type="source"
           position={Position.Right}

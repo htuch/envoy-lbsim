@@ -1,4 +1,4 @@
-import type { SimConfig } from '@elbsim/config';
+import { resolveBackend, type SimConfig } from '@elbsim/config';
 import type { EntityKind } from '@elbsim/protocol';
 import { Prng } from '@elbsim/sim-core';
 
@@ -52,20 +52,6 @@ export interface TopologySnapshot {
   envoys: TopologyNodeStatus[];
   backends: TopologyNodeStatus[];
   edges: TopologyEdge[];
-}
-
-/** Resolve a backend's capacity, applying any sparse per-index override. */
-function backendCapacity(config: SimConfig, index: number): number {
-  return config.backends.overrides[String(index)]?.capacity ?? config.backends.defaults.capacity;
-}
-
-/** Resolve a backend's queue size, applying any sparse per-index override. */
-function backendQueueSize(config: SimConfig, index: number): number {
-  return config.backends.overrides[String(index)]?.queueSize ?? config.backends.defaults.queueSize;
-}
-
-function backendLocality(config: SimConfig, index: number): { region: string; zone: string } {
-  return config.backends.overrides[String(index)]?.locality ?? config.backends.defaults.locality;
 }
 
 /** Draw an integer in [0, max] with a soft bias toward the low end. */
@@ -127,9 +113,10 @@ export function makeTopologySnapshot(
 
   const backends: TopologyNodeStatus[] = [];
   for (let i = 0; i < config.backends.count; i++) {
-    const capacity = backendCapacity(config, i);
-    const queueSize = backendQueueSize(config, i);
-    const loc = backendLocality(config, i);
+    const spec = resolveBackend(config.backends, i);
+    const capacity = spec.capacity;
+    const queueSize = spec.queueSize;
+    const loc = spec.locality;
     const inFlight = loadDraw(rng, capacity);
     const saturated = inFlight >= capacity;
     // Mostly healthy; occasionally degraded; rarely unhealthy.
@@ -179,7 +166,7 @@ function makeEdges(config: SimConfig, rng: Prng): TopologyEdge[] {
   const weights: number[] = [];
   let weightSum = 0;
   for (let b = 0; b < backendCount; b++) {
-    const w = config.backends.overrides[String(b)]?.weight ?? config.backends.defaults.weight;
+    const w = resolveBackend(config.backends, b).weight;
     weights.push(w);
     weightSum += w;
   }

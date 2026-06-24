@@ -73,11 +73,13 @@ export function layoutTopology(snapshot: TopologySnapshot): TopologyLayout {
       id: `${source}->${target}`,
       source,
       target,
-      // Weight the stroke by traffic share; client fan-out is de-emphasized.
+      // Weight the envoy->backend stroke by traffic share; the dense client
+      // fan-out stays thin but legible. muted-foreground reads clearly against
+      // the canvas (the near-white border color did not).
       style: {
-        strokeWidth: 0.75 + edge.share * 3,
-        stroke: 'var(--color-border)',
-        opacity: fromClient ? 0.5 : 0.8,
+        strokeWidth: fromClient ? 1 : 1 + edge.share * 4,
+        stroke: 'var(--color-muted-foreground)',
+        opacity: fromClient ? 0.4 : 0.65,
       },
     };
   });

@@ -1,4 +1,4 @@
-import type { EnvoyLbPolicyKind, SimConfig } from '@elbsim/config';
+import { type EnvoyLbPolicyKind, resolveBackend, type SimConfig } from '@elbsim/config';
 import type {
   EdfInspection,
   InspectedHost,
@@ -24,29 +24,20 @@ const HEALTH_HEALTHY = 2;
 const HEALTH_DEGRADED = 1;
 const HEALTH_UNHEALTHY = 0;
 
-/** Resolve a backend's relative LB weight, applying any sparse override. */
-function backendWeight(config: SimConfig, index: number): number {
-  return config.backends.overrides[String(index)]?.weight ?? config.backends.defaults.weight;
-}
-
-function backendLocality(config: SimConfig, index: number): { region: string; zone: string } {
-  return config.backends.overrides[String(index)]?.locality ?? config.backends.defaults.locality;
-}
-
 /** Build the resolved host view the LB currently sees (post health/weight). */
 function makeHosts(config: SimConfig, rng: Prng): InspectedHost[] {
   const hosts: InspectedHost[] = [];
   for (let b = 0; b < config.backends.count; b++) {
-    const loc = backendLocality(config, b);
+    const spec = resolveBackend(config.backends, b);
     const roll = rng.nextFloat();
     const health = roll < 0.85 ? HEALTH_HEALTHY : roll < 0.95 ? HEALTH_DEGRADED : HEALTH_UNHEALTHY;
     hosts.push({
       backend: b,
-      weight: backendWeight(config, b),
+      weight: spec.weight,
       health: health as 0 | 1 | 2,
       priority: 0,
-      region: loc.region,
-      zone: loc.zone,
+      region: spec.locality.region,
+      zone: spec.locality.zone,
       activeRequests: rng.nextInt(16),
     });
   }
