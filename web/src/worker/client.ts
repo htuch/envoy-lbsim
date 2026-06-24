@@ -3,8 +3,8 @@ import * as Comlink from 'comlink';
 
 /**
  * Spawn the simulation worker and wrap it as a {@link SimWorkerApi} proxy.
- * Today it spins up the synthetic {@link './mock-sim-worker'}; when Track B's
- * kernel worker lands, only the worker URL here changes. Bootstrap glue,
+ * Points at the real SimController worker backed by the composite LB module
+ * (Wasm for maglev, mock for all other policies). Bootstrap glue,
  * excluded from coverage like `main.tsx`.
  */
 export interface SimWorkerHandle {
@@ -13,9 +13,9 @@ export interface SimWorkerHandle {
 }
 
 export function createSimWorker(): SimWorkerHandle {
-  const worker = new Worker(new URL('./mock-sim-worker.ts', import.meta.url), {
+  const worker = new Worker(new URL('./sim-worker.ts', import.meta.url), {
     type: 'module',
-    name: 'sim-mock',
+    name: 'sim',
   });
   return {
     api: Comlink.wrap<SimWorkerApi>(worker),

@@ -107,6 +107,9 @@ importers:
       '@elbsim/sim-core':
         specifier: workspace:*
         version: link:../packages/sim-core
+      '@elbsim/wasm-lb':
+        specifier: workspace:*
+        version: link:../packages/wasm-lb
       '@observablehq/plot':
         specifier: ^0.6.17
         version: 0.6.17

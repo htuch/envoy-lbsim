@@ -1,9 +1,34 @@
 /// <reference types="vitest/config" />
+import { copyFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { comlink } from 'vite-plugin-comlink';
 import { defineConfig } from 'vitest/config';
+
+// The Emscripten-built lb.mjs locates lb.wasm via `new URL("lb.wasm",
+// import.meta.url)`. Vite bundles lb.mjs into a hashed asset chunk but does
+// not automatically follow and emit the runtime-loaded .wasm binary alongside
+// it. This plugin copies lb.wasm into the build output's assetsDir so the
+// browser can fetch it relative to the lb chunk.
+function copyWasmPlugin(): Plugin {
+  return {
+    name: 'copy-lb-wasm',
+    apply: 'build',
+    closeBundle() {
+      const src = fileURLToPath(new URL('../packages/wasm-lb/build/lb.wasm', import.meta.url));
+      const outDir = fileURLToPath(new URL('./dist/assets', import.meta.url));
+      try {
+        mkdirSync(outDir, { recursive: true });
+        copyFileSync(src, `${outDir}/lb.wasm`);
+      } catch {
+        // Wasm artifact not built yet; the worker will throw a clear error at
+        // runtime. The web build itself is not blocked.
+      }
+    },
+  };
+}
 
 // SharedArrayBuffer (used for the telemetry ring buffers shared with the sim
 // worker) requires cross-origin isolation. Emit COOP/COEP in dev and preview;
@@ -14,7 +39,7 @@ const crossOriginIsolation = {
 };
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), comlink()],
+  plugins: [react(), tailwindcss(), comlink(), copyWasmPlugin()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -42,8 +67,10 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/test-setup.ts',
         // Worker bootstrap glue: real Worker + Comlink.expose, not runnable under
-        // jsdom. The runner logic they wrap is unit-tested directly (runner.test).
+        // jsdom. The runner logic they wrap is unit-tested directly (runner.test
+        // and controller.test). sim-worker.ts also requires the Wasm artifact.
         'src/worker/mock-sim-worker.ts',
+        'src/worker/sim-worker.ts',
         'src/worker/client.ts',
         '**/*.test.{ts,tsx}',
       ],

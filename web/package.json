@@ -18,6 +18,7 @@
     "@elbsim/config": "workspace:*",
     "@elbsim/protocol": "workspace:*",
     "@elbsim/sim-core": "workspace:*",
+    "@elbsim/wasm-lb": "workspace:*",
     "@observablehq/plot": "^0.6.17",
     "@xyflow/react": "^12.11.1",
     "class-variance-authority": "^0.7.1",
