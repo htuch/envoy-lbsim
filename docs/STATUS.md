@@ -4,16 +4,17 @@ Living document. `/new-session` reads it to start; `/wrap-session` updates it.
 
 ## Now
 
-Phase 0 (scaffolding) is complete and Track B (simulation kernel) is done.
-`sim-core` is now a full discrete-event simulation that drives the request
-lifecycle end to end, emits the `RequestEvent` stream, writes hot-path gauge
-frames into the ring buffers, and exposes the worker `SimWorkerApi` via
-`SimController`. Track C's frontend shell, hot-path telemetry, and config editor
-are landed (C1+C2); brushing (C3) remains. The repo builds, type checks, lints,
-and tests green under the 95% coverage gate.
+Phase 0 (scaffolding) is complete. Track B (simulation kernel) and Track C
+(frontend shell, hot-path telemetry, config editor, lock-step brush-zoom) are
+both done. `sim-core` is a full discrete-event simulation driving the request
+lifecycle end to end, emitting the `RequestEvent` stream, writing hot-path gauge
+frames into the ring buffers, and exposing the worker `SimWorkerApi` via
+`SimController`. The web app renders live timelines, transport, and the config
+editor against a synthetic worker behind that same `SimWorkerApi`. The repo
+builds, type checks, lints, and tests green under the 95% coverage gate.
 
-Remaining work is Tracks A, D, Track C's C3, plus integration. Each is gated
-only on the Phase 0 interfaces and mocks the others until they land.
+Remaining work is Tracks A and D, plus integration. Each is gated only on the
+Phase 0 interfaces and mocks the others until they land.
 
 ## Phase 0: scaffolding and interfaces (DONE)
 
@@ -69,8 +70,7 @@ Mocks until done: none (this is the real thing the mock stands in for).
   Track A); least_request weighting (the mock falls back to round_robin, but the
   engine feeds live per-host active counts so the real policy will work).
 
-### Track C: frontend shell and hot path
-Done (C1+C2):
+### Track C: frontend shell and hot path (DONE)
 - Control-panel layout (`web/src/App.tsx`); schema-driven config editor over
   `@elbsim/config` validated through Zod before reload
   (`web/src/components/config/ConfigEditor.tsx`).
@@ -79,18 +79,19 @@ Done (C1+C2):
 - Hot path: uPlot gauge strips fed by a `requestAnimationFrame` loop reading the
   SharedArrayBuffer rings directly, never through React
   (`web/src/components/timeline/`, `web/src/lib/series.ts`).
+- Lock-step brush-zoom: dragging a window on any strip zooms every strip to the
+  same x-window and freezes it while live data streams; a Reset control clears
+  it. Driven by one shared `selection` in the store (not uPlot cursor-sync); the
+  committed `{fromMs,toMs}` is the handoff to Track D's `queryWindow`.
 - Worker wiring (Comlink + SAB): a synthetic telemetry worker implements the
   real `SimWorkerApi` and paces deterministic gauge frames into the rings under
   transport control (`web/src/worker/`). Track B swaps the worker URL in
   `web/src/worker/client.ts`; everything else is unchanged.
-Remaining (C3):
-- uPlot brushing: select a window on a strip and commit it (the brushed range
-  feeds Track D's cold-path charts via `queryWindow`). Next concrete step: add a
-  uPlot brush plugin to `web/src/components/timeline/Timeline.tsx` and store the
-  committed `{fromMs,toMs}` in the zustand store. Open question: shared brush
-  across all strips vs per-strip.
-Mocks until done: the synthetic worker (`web/src/worker/`) stands in behind
-`protocol`; replaced by Track B's kernel worker at integration.
+Small follow-ups (not blocking): cross-strip crosshair sync (hover reads the
+same x on every gauge) was deliberately deferred to avoid uPlot's select-band
+artifact; revisit with a custom cursor-sync that does not mirror the drag select.
+Mocks until integration: the synthetic worker (`web/src/worker/`) stands in
+behind `protocol`; replaced by Track B's kernel worker.
 
 ### Track D: topology, cold path, inspector
 - `@xyflow/react` + dagre topology graph with live status; queue visualizations.
