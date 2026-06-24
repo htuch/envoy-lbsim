@@ -14,10 +14,22 @@ import { Dock } from './Dock';
  * Observable Plot and uPlot are not available under jsdom. The WindowAnalysis
  * component uses them so we short-circuit here to test Dock behavior without
  * needing rendering infrastructure those libraries require.
+ *
+ * The mock also exposes fullRunSamples via a data attribute so tests can
+ * assert the prop is threaded through from the store.
  */
 vi.mock('@/components/analysis/WindowAnalysis', () => ({
-  WindowAnalysis: ({ aggregate }: { aggregate: WindowAggregate }) => (
-    <div data-testid="window-analysis">
+  WindowAnalysis: ({
+    aggregate,
+    fullRunSamples,
+  }: {
+    aggregate: WindowAggregate;
+    fullRunSamples?: WindowLatencySamples;
+  }) => (
+    <div
+      data-testid="window-analysis"
+      data-has-full-run={fullRunSamples !== undefined ? 'true' : 'false'}
+    >
       {aggregate.totalRequests === 0 ? (
         <span>no requests in window</span>
       ) : (
@@ -209,6 +221,36 @@ describe('Dock', () => {
     });
     render(<Dock />);
     expect(screen.getByTestId('window-analysis')).toBeInTheDocument();
+  });
+
+  it('passes fullRunSamples to WindowAnalysis when the store has it', () => {
+    const fullRunSamples: WindowLatencySamples = {
+      fromMs: 0,
+      toMs: 10000,
+      latencies: [1, 2, 3, 4, 5],
+      capped: false,
+    };
+    useSimStore.setState({
+      selection: SELECTION,
+      windowAggregate: BASE_AGGREGATE,
+      windowSamples: BASE_SAMPLES,
+      windowLoading: false,
+      fullRunSamples,
+    });
+    render(<Dock />);
+    expect(screen.getByTestId('window-analysis')).toHaveAttribute('data-has-full-run', 'true');
+  });
+
+  it('does not pass fullRunSamples to WindowAnalysis when the store has null', () => {
+    useSimStore.setState({
+      selection: SELECTION,
+      windowAggregate: BASE_AGGREGATE,
+      windowSamples: BASE_SAMPLES,
+      windowLoading: false,
+      fullRunSamples: null,
+    });
+    render(<Dock />);
+    expect(screen.getByTestId('window-analysis')).toHaveAttribute('data-has-full-run', 'false');
   });
 
   it('shows "no requests in window" when aggregate has totalRequests === 0', () => {

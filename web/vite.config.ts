@@ -22,9 +22,10 @@ function copyWasmPlugin(): Plugin {
       try {
         mkdirSync(outDir, { recursive: true });
         copyFileSync(src, `${outDir}/lb.wasm`);
-      } catch {
-        // Wasm artifact not built yet; the worker will throw a clear error at
-        // runtime. The web build itself is not blocked.
+      } catch (_err) {
+        this.warn(
+          'lb.wasm not found in packages/wasm-lb/build; the production build will ship a non-functional worker. Run `pnpm run wasm:build` first.',
+        );
       }
     },
   };

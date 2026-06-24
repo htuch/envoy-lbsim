@@ -1,3 +1,4 @@
+import type { WindowLatencySamples } from '@elbsim/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { WindowAnalysis } from '@/components/analysis/WindowAnalysis';
 import { LbInspector } from '@/components/inspector/LbInspector';
@@ -58,6 +59,7 @@ export function Dock(): React.JSX.Element {
   const windowAggregate = useSimStore((s) => s.windowAggregate);
   const windowSamples = useSimStore((s) => s.windowSamples);
   const windowLoading = useSimStore((s) => s.windowLoading);
+  const fullRunSamples = useSimStore((s) => s.fullRunSamples);
   const ready = useSimStore((s) => s.ready);
   const loadWindow = useSimStore((s) => s.loadWindow);
   const loadInspection = useSimStore((s) => s.loadInspection);
@@ -183,6 +185,7 @@ export function Dock(): React.JSX.Element {
               samples={windowSamples}
               loading={windowLoading}
               hasSelection={selection !== null}
+              {...(fullRunSamples !== null && { fullRunSamples })}
             />
           )}
         </div>
@@ -215,6 +218,7 @@ interface WindowPanelProps {
   samples: ReturnType<typeof useSimStore.getState>['windowSamples'];
   loading: boolean;
   hasSelection: boolean;
+  fullRunSamples?: WindowLatencySamples;
 }
 
 function WindowPanel({
@@ -222,6 +226,7 @@ function WindowPanel({
   samples,
   loading,
   hasSelection,
+  fullRunSamples,
 }: WindowPanelProps): React.JSX.Element {
   if (!hasSelection) {
     return <EmptyState>Brush a timeline to select a window for analysis.</EmptyState>;
@@ -232,7 +237,13 @@ function WindowPanel({
   if (!aggregate || !samples) {
     return <LoadingState />;
   }
-  return <WindowAnalysis aggregate={aggregate} samples={samples} />;
+  return (
+    <WindowAnalysis
+      aggregate={aggregate}
+      samples={samples}
+      {...(fullRunSamples !== undefined && { fullRunSamples })}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------

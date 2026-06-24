@@ -35,6 +35,14 @@ const FAKE_SAMPLES: WindowLatencySamples = {
   capped: false,
 };
 
+/** Distinct full-run latency samples (fromMs=0, toMs=durationMs). */
+const FAKE_FULL_RUN_SAMPLES: WindowLatencySamples = {
+  fromMs: 0,
+  toMs: 10000,
+  latencies: [1, 2, 3, 4, 5],
+  capped: false,
+};
+
 /** Minimal stub LbInspection. */
 const FAKE_INSPECTION: LbInspection = {
   envoy: 0,
@@ -49,46 +57,63 @@ const FAKE_INSPECTION: LbInspection = {
  * A fake SimWorkerApi that supports manual promise resolution for testing
  * async stale-drop logic. Implements only the methods needed by the new store
  * additions; loadConfig/status use real MockSimRunner.
+ *
+ * queryWindow (aggregate) and queryWindowLatencies (samples) use separate
+ * queues so tests can resolve them independently. On the first loadWindow
+ * call, the store calls queryWindowLatencies twice (once for the window query,
+ * once for the full-run baseline), so latency resolvers must be drained in
+ * order.
  */
 class FakeApi extends MockSimRunner {
-  private _windowResolvers: Array<(v: [WindowAggregate, WindowLatencySamples]) => void> = [];
+  private _aggResolvers: Array<(v: WindowAggregate) => void> = [];
+  private _samplesResolvers: Array<(v: WindowLatencySamples) => void> = [];
   private _inspectionResolvers: Array<(v: LbInspection) => void> = [];
 
-  pendingWindowCount(): number {
-    return this._windowResolvers.length;
+  pendingAggCount(): number {
+    return this._aggResolvers.length;
+  }
+
+  pendingSamplesCount(): number {
+    return this._samplesResolvers.length;
   }
 
   pendingInspectionCount(): number {
     return this._inspectionResolvers.length;
   }
 
-  /** Override queryWindow to queue a deferred promise. */
   override queryWindow(_q: WindowQuery): Promise<WindowAggregate> {
-    // The store calls queryWindow and queryWindowLatencies in parallel;
-    // we resolve them together via resolveNextWindow.
     return new Promise((res) => {
-      // Pair resolver stored alongside latencies resolver index; this side
-      // resolves the aggregate only when resolveNextWindow is called.
-      this._windowResolvers.push(([agg]) => res(agg));
+      this._aggResolvers.push(res);
     });
   }
 
   override queryWindowLatencies(_q: WindowQuery): Promise<WindowLatencySamples> {
     return new Promise((res) => {
-      this._windowResolvers.push(([_, samples]) => res(samples));
+      this._samplesResolvers.push(res);
     });
   }
 
-  /** Resolve the oldest pending queryWindow + queryWindowLatencies pair. */
+  /**
+   * Resolve the oldest pending queryWindow aggregate and ONE pending
+   * queryWindowLatencies promise (for the window samples). On the first
+   * loadWindow call there will be two pending latency resolvers (window +
+   * full-run); use resolveNextFullRun to drain the second one.
+   */
   resolveNextWindow(
     agg: WindowAggregate = FAKE_AGGREGATE,
     samples: WindowLatencySamples = FAKE_SAMPLES,
   ): void {
-    // Two resolvers were pushed (one for aggregate, one for samples) -- drain both.
-    const r1 = this._windowResolvers.shift();
-    const r2 = this._windowResolvers.shift();
-    r1?.([agg, samples]);
-    r2?.([agg, samples]);
+    this._aggResolvers.shift()?.(agg);
+    this._samplesResolvers.shift()?.(samples);
+  }
+
+  /**
+   * Resolve the next pending queryWindowLatencies promise with a full-run
+   * sample set. Call this after resolveNextWindow on the first loadWindow to
+   * drain the full-run query that the store issues in parallel.
+   */
+  resolveNextFullRun(samples: WindowLatencySamples = FAKE_FULL_RUN_SAMPLES): void {
+    this._samplesResolvers.shift()?.(samples);
   }
 
   override requestInspection(_envoy: number, _tMs: number): Promise<LbInspection> {
@@ -212,12 +237,17 @@ describe('useSimStore', () => {
     await useSimStore.getState().load();
 
     // Seed some cache state manually so we can verify it is cleared.
-    useSimStore.setState({ windowAggregate: FAKE_AGGREGATE, windowSamples: FAKE_SAMPLES });
+    useSimStore.setState({
+      windowAggregate: FAKE_AGGREGATE,
+      windowSamples: FAKE_SAMPLES,
+      fullRunSamples: FAKE_FULL_RUN_SAMPLES,
+    });
 
     await useSimStore.getState().load();
     const s = useSimStore.getState();
     expect(s.windowAggregate).toBeNull();
     expect(s.windowSamples).toBeNull();
+    expect(s.fullRunSamples).toBeNull();
     expect(s.inspection).toBeNull();
   });
 
@@ -235,8 +265,10 @@ describe('useSimStore', () => {
     // While in-flight, windowLoading should be true.
     expect(useSimStore.getState().windowLoading).toBe(true);
 
-    // Resolve the fake API calls.
+    // Resolve the window query (agg + window samples) and the full-run
+    // baseline (second queryWindowLatencies call on the first loadWindow).
     api.resolveNextWindow();
+    api.resolveNextFullRun();
 
     await loading;
 
@@ -262,8 +294,10 @@ describe('useSimStore', () => {
     const freshAggregate: WindowAggregate = { ...FAKE_AGGREGATE, totalRequests: 999 };
     useSimStore.setState({ windowAggregate: freshAggregate });
 
-    // Now resolve the OLD (stale) query.
+    // Resolve all three in-flight promises for the stale loadWindow call
+    // (aggregate + window samples + full-run samples) so Promise.all settles.
     api.resolveNextWindow();
+    api.resolveNextFullRun();
     await staleLoad;
 
     // The stale result must NOT have overwritten the fresh data.
@@ -284,13 +318,73 @@ describe('useSimStore', () => {
     await useSimStore.getState().load();
     expect(useSimStore.getState().windowLoading).toBe(false);
 
-    // Resolving the stale query must not commit its result nor re-raise the flag.
+    // Resolve all in-flight promises (agg + window samples + full-run samples)
+    // so Promise.all can settle; the stale guard prevents committing the result.
     api.resolveNextWindow();
+    api.resolveNextFullRun();
     await staleLoad;
     const s = useSimStore.getState();
     expect(s.windowLoading).toBe(false);
     expect(s.windowAggregate).toBeNull();
     expect(s.windowSamples).toBeNull();
+  });
+
+  // ---- fullRunSamples -------------------------------------------------------
+
+  it('loadWindow populates fullRunSamples on the first call', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    const q: WindowQuery = { fromMs: 0, toMs: 1000 };
+    const loading = useSimStore.getState().loadWindow(q);
+
+    // Resolve all three in-flight promises: agg, window samples, full-run samples.
+    api.resolveNextWindow(FAKE_AGGREGATE, FAKE_SAMPLES);
+    api.resolveNextFullRun(FAKE_FULL_RUN_SAMPLES);
+    await loading;
+
+    expect(useSimStore.getState().fullRunSamples).toEqual(FAKE_FULL_RUN_SAMPLES);
+  });
+
+  it('loadWindow does not re-fetch fullRunSamples on subsequent calls within the same run', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    const q: WindowQuery = { fromMs: 0, toMs: 1000 };
+
+    // First loadWindow call: resolves aggregate + 2x latencies (window + full-run).
+    const first = useSimStore.getState().loadWindow(q);
+    api.resolveNextWindow();
+    api.resolveNextFullRun(FAKE_FULL_RUN_SAMPLES);
+    await first;
+    expect(useSimStore.getState().fullRunSamples).toEqual(FAKE_FULL_RUN_SAMPLES);
+
+    // Second loadWindow call: fullRunSamples is already set, so only aggregate +
+    // window samples are fetched (no full-run query).
+    const second = useSimStore.getState().loadWindow(q);
+    // Only 1 agg + 1 samples in flight; no third resolver is queued.
+    expect(api.pendingSamplesCount()).toBe(1);
+    api.resolveNextWindow();
+    await second;
+
+    // fullRunSamples must remain the value from the first call (not re-fetched).
+    expect(useSimStore.getState().fullRunSamples).toEqual(FAKE_FULL_RUN_SAMPLES);
+  });
+
+  it('load() clears fullRunSamples so the next run fetches a fresh baseline', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    // Seed fullRunSamples as if a loadWindow already completed.
+    useSimStore.setState({ fullRunSamples: FAKE_FULL_RUN_SAMPLES });
+    expect(useSimStore.getState().fullRunSamples).toEqual(FAKE_FULL_RUN_SAMPLES);
+
+    // A fresh load() must clear it.
+    await useSimStore.getState().load();
+    expect(useSimStore.getState().fullRunSamples).toBeNull();
   });
 
   // ---- loadInspection -------------------------------------------------------

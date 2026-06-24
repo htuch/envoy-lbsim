@@ -57,6 +57,12 @@ export interface SimStore {
   windowSamples: WindowLatencySamples | null;
   /** True while a {@link loadWindow} call is outstanding. */
   windowLoading: boolean;
+  /**
+   * Full-run latency samples (fromMs=0, toMs=durationMs) for the CDF overlay.
+   * Fetched once per run on the first {@link loadWindow} call; null until then
+   * or after a {@link load} (which clears it for the new run).
+   */
+  fullRunSamples: WindowLatencySamples | null;
 
   /** Most recently committed LB inspection; null until first fetch. */
   inspection: LbInspection | null;
@@ -129,6 +135,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   windowAggregate: null,
   windowSamples: null,
   windowLoading: false,
+  fullRunSamples: null,
   inspection: null,
   inspectionLoading: false,
   inspectReqSeq: 0,
@@ -153,6 +160,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
       windowAggregate: null,
       windowSamples: null,
       windowLoading: false,
+      fullRunSamples: null,
       inspection: null,
       inspectionLoading: false,
     });
@@ -212,10 +220,24 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const capturedHandle = get().handle;
     set({ windowLoading: true });
     try {
-      const [agg, samples] = await Promise.all([api.queryWindow(q), api.queryWindowLatencies(q)]);
+      // Fetch the window pair. On the first loadWindow call for this run
+      // (fullRunSamples is still null), also fetch the full-run baseline so
+      // the CDF overlay has data. Only the first call fetches it; the
+      // null-check prevents redundant re-fetches on subsequent window brushes.
+      const fetchFullRun = get().fullRunSamples === null;
+      const durationMs = get().config.time.durationMs;
+      const [agg, samples, fullRun] = await Promise.all([
+        api.queryWindow(q),
+        api.queryWindowLatencies(q),
+        fetchFullRun
+          ? api.queryWindowLatencies({ fromMs: 0, toMs: durationMs })
+          : Promise.resolve(null),
+      ]);
       // Drop stale: the run was reloaded while we were in-flight.
       if (get().handle !== capturedHandle) return;
-      set({ windowAggregate: agg, windowSamples: samples });
+      const update: Partial<SimStore> = { windowAggregate: agg, windowSamples: samples };
+      if (fullRun !== null) update.fullRunSamples = fullRun;
+      set(update);
     } finally {
       // Only clear the loading flag if we are still the current run.
       if (get().handle === capturedHandle) {
