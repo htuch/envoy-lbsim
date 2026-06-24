@@ -11,7 +11,6 @@ export const consistencyCases: LbValidationCase[] = [
       let multi = 0;
       let worstKey = -1;
       for (const [key, set] of s.keyConsistency) {
-        /* c8 ignore next 4 -- only reachable when a buggy LB routes a key to multiple backends */
         if (set.size > 1) {
           multi++;
           if (worstKey < 0) worstKey = key;
@@ -21,7 +20,6 @@ export const consistencyCases: LbValidationCase[] = [
         {
           label: 'no key routed to more than one backend',
           pass: s.keyConsistency.size > 0 && multi === 0,
-          /* c8 ignore next 4 -- false branch only reachable when LB is inconsistent */
           detail:
             multi === 0
               ? `${s.keyConsistency.size} distinct keys, all stable`

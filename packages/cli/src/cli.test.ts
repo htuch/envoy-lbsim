@@ -76,7 +76,7 @@ describe('main', () => {
     const { io } = capture();
     const realDeps = { loadReal: async (): Promise<LbModule | undefined> => undefined };
     const code = await main(['run', '--real', '--policy', 'maglev', '--mock'], io, realDeps);
-    // --mock takes precedence over --real in parseFlags (last write wins via mode)
+    // --mock takes precedence because it is checked first in the mode ternary (mock ? 'mock' : real ? 'real' : 'auto')
     expect(code).toBe(0);
   });
 
