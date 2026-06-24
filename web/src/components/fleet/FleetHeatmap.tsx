@@ -100,8 +100,8 @@ function Cell({ node, isSelected, isUnhealthy, onClick }: CellProps) {
 interface TierRowProps {
   tier: 'clients' | 'envoys' | 'backends';
   nodes: TopologyNodeStatus[];
-  selectedEnvoy?: number;
-  onSelectEnvoy?: (index: number) => void;
+  selectedEnvoy?: number | null;
+  onSelectEnvoy?: (index: number | null) => void;
 }
 
 const TIER_LABEL: Record<TierRowProps['tier'], string> = {
@@ -119,11 +119,15 @@ function TierRow({ tier, nodes, selectedEnvoy, onSelectEnvoy }: TierRowProps) {
       <div className="flex min-w-0 flex-1 gap-[3px]">
         {nodes.map((node) => {
           const isEnvoy = tier === 'envoys';
-          const isSelected = isEnvoy && node.index === selectedEnvoy;
+          const isSelected = isEnvoy && selectedEnvoy != null && node.index === selectedEnvoy;
           const isUnhealthy = tier === 'backends' && node.health >= 2;
 
+          // Clicking the already-selected envoy toggles selection off (null);
+          // clicking any other envoy selects it.
           const clickHandler =
-            isEnvoy && onSelectEnvoy ? () => onSelectEnvoy(node.index) : undefined;
+            isEnvoy && onSelectEnvoy
+              ? () => onSelectEnvoy(node.index === selectedEnvoy ? null : node.index)
+              : undefined;
 
           return (
             <Cell
@@ -168,8 +172,8 @@ function Legend() {
 
 interface FleetHeatmapProps {
   snapshot: TopologySnapshot;
-  selectedEnvoy: number;
-  onSelectEnvoy: (index: number) => void;
+  selectedEnvoy: number | null;
+  onSelectEnvoy: (index: number | null) => void;
 }
 
 /**

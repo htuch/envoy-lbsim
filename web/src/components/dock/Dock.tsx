@@ -96,6 +96,7 @@ export function Dock(): React.JSX.Element {
   useEffect(() => {
     if (mounted.current) setTab('inspector');
     if (!ready) return;
+    if (selectedEnvoy === null) return;
     if (statusStateRef.current === 'running') return;
     void loadInspection(selectedEnvoy, virtualTimeMsRef.current);
   }, [selectedEnvoy, loadInspection, ready]);
@@ -113,6 +114,7 @@ export function Dock(): React.JSX.Element {
     // - virtualTimeMs change while already paused (e.g. step, seek)
     // Skip on initial mount -- the selectedEnvoy effect handles the first fetch.
     if (!mounted.current) return;
+    if (selectedEnvoyRef.current === null) return;
     void loadInspection(selectedEnvoyRef.current, virtualTimeMs);
   }, [statusState, virtualTimeMs, loadInspection]);
 
@@ -178,7 +180,11 @@ export function Dock(): React.JSX.Element {
         {/* Panel content */}
         <div className="min-h-0 flex-1 overflow-hidden">
           {tab === 'inspector' ? (
-            <InspectorPanel inspection={inspection} loading={inspectionLoading} />
+            <InspectorPanel
+              inspection={inspection}
+              loading={inspectionLoading}
+              selectedEnvoy={selectedEnvoy}
+            />
           ) : (
             <WindowPanel
               aggregate={windowAggregate}
@@ -201,9 +207,19 @@ export function Dock(): React.JSX.Element {
 interface InspectorPanelProps {
   inspection: ReturnType<typeof useSimStore.getState>['inspection'];
   loading: boolean;
+  selectedEnvoy: number | null;
 }
 
-function InspectorPanel({ inspection, loading }: InspectorPanelProps): React.JSX.Element {
+function InspectorPanel({
+  inspection,
+  loading,
+  selectedEnvoy,
+}: InspectorPanelProps): React.JSX.Element {
+  // No envoy selected: prompt regardless of any stale inspection from a prior
+  // selection (deselecting must clear the panel back to the hint).
+  if (selectedEnvoy === null) {
+    return <EmptyState>Select an envoy in the topology to inspect its LB state.</EmptyState>;
+  }
   if (loading && !inspection) {
     return <LoadingState />;
   }

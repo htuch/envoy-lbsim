@@ -32,13 +32,13 @@ import { useSimStore } from '@/store/sim-store';
 
 // Per-entity gauge strips, fanned out one line per entity, grouped by tier.
 const GAUGE_STRIPS = [
-  { kind: 'envoy', gauge: 'inFlight', label: 'Envoy · in-flight' },
-  { kind: 'envoy', gauge: 'queueDepth', label: 'Envoy · queue depth' },
-  { kind: 'backend', gauge: 'utilization', label: 'Backend · utilization' },
-  { kind: 'backend', gauge: 'inFlight', label: 'Backend · in-flight' },
-  { kind: 'backend', gauge: 'latencyP99', label: 'Backend · latency p99' },
-  { kind: 'client', gauge: 'emitRate', label: 'Client · emit rate' },
-  { kind: 'client', gauge: 'inFlight', label: 'Client · in-flight' },
+  { kind: 'envoy', gauge: 'inFlight', label: 'Envoy · in-flight', unit: 'reqs' },
+  { kind: 'envoy', gauge: 'queueDepth', label: 'Envoy · queue depth', unit: 'reqs' },
+  { kind: 'backend', gauge: 'utilization', label: 'Backend · utilization', unit: 'load 0-1' },
+  { kind: 'backend', gauge: 'inFlight', label: 'Backend · in-flight', unit: 'reqs' },
+  { kind: 'backend', gauge: 'latencyP99', label: 'Backend · latency p99', unit: 'ms' },
+  { kind: 'client', gauge: 'emitRate', label: 'Client · emit rate', unit: 'reqs/interval' },
+  { kind: 'client', gauge: 'inFlight', label: 'Client · in-flight', unit: 'reqs' },
 ] as const;
 
 // Pre-resolve the selected-envoy latency gauge columns (stable indices).
@@ -102,7 +102,7 @@ export function App(): React.JSX.Element {
   // React. The latency builder follows `selectedEnvoy` via a revision remount.
   const buildLatency = (): Series => {
     const ring = rings.get('envoy');
-    if (!ring) return { x: [], ys: [] };
+    if (!ring || selectedEnvoy === null) return { x: [], ys: [] };
     const p50 = selectedSeries(ring, ENVOY_P50, selectedEnvoy);
     const p90 = selectedSeries(ring, ENVOY_P90, selectedEnvoy);
     const p99 = selectedSeries(ring, ENVOY_P99, selectedEnvoy);
@@ -170,13 +170,19 @@ export function App(): React.JSX.Element {
                 kind={s.kind}
                 gauge={s.gauge}
                 label={s.label}
+                unit={s.unit}
               />
             ))}
             <DerivedStrip
-              label={`Envoy · latency · e${selectedEnvoy}`}
+              label={
+                selectedEnvoy === null
+                  ? 'Envoy · latency (no envoy selected)'
+                  : `Envoy · latency · e${selectedEnvoy}`
+              }
+              unit="ms"
               lines={LATENCY_LINES}
               build={buildLatency}
-              revision={selectedEnvoy}
+              revision={selectedEnvoy ?? -1}
             />
 
             {/* Backend tier. */}
@@ -186,6 +192,7 @@ export function App(): React.JSX.Element {
                 kind={s.kind}
                 gauge={s.gauge}
                 label={s.label}
+                unit={s.unit}
               />
             ))}
 
@@ -196,13 +203,20 @@ export function App(): React.JSX.Element {
                 kind={s.kind}
                 gauge={s.gauge}
                 label={s.label}
+                unit={s.unit}
               />
             ))}
 
             {/* Fleet tier: derived goodput and per-stage losses. */}
-            <DerivedStrip label="Fleet · goodput" lines={GOODPUT_LINES} build={buildGoodput} />
+            <DerivedStrip
+              label="Fleet · goodput"
+              unit="ratio 0-1"
+              lines={GOODPUT_LINES}
+              build={buildGoodput}
+            />
             <DerivedStrip
               label="Fleet · losses by stage"
+              unit="reqs/interval"
               lines={LOSSES_LINES}
               build={buildLosses}
             />

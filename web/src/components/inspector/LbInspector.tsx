@@ -41,22 +41,24 @@ export function LbInspector({ inspection }: { inspection: LbInspection }): React
           </span>
         </header>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <section className="space-y-1.5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Resolved hosts
-            </p>
-            <div className="rounded-md border bg-card p-2.5">
-              <HostsTable hosts={inspection.hosts} />
-            </div>
-          </section>
-
+        {/* Vertical column: the LB structure on top, the resolved host set
+            below it, so the dock scrolls structure-then-hosts in one column. */}
+        <div className="flex flex-col gap-4">
           <section className="space-y-1.5">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {STRUCTURE_TITLE[inspection.structure.kind]}
             </p>
             <div className="rounded-md border bg-card p-2.5">
               <StructureView structure={inspection.structure} />
+            </div>
+          </section>
+
+          <section className="space-y-1.5">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Resolved hosts
+            </p>
+            <div className="rounded-md border bg-card p-2.5">
+              <HostsTable hosts={inspection.hosts} />
             </div>
           </section>
         </div>

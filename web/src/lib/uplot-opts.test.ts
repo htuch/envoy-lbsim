@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   makeTimelineOpts,
   SERIES_COLORS,
+  seekTimeFromPlot,
   selectionFromPlot,
   seriesColor,
   type TimelineSync,
@@ -67,5 +68,25 @@ describe('selectionFromPlot', () => {
   it('returns null for a too-small drag', () => {
     const u = { select: { left: 0, width: 3 }, posToVal: (p: number) => p };
     expect(selectionFromPlot(u)).toBeNull();
+  });
+});
+
+describe('seekTimeFromPlot', () => {
+  it('maps a plain click cursor position to a virtual time in ms', () => {
+    // x axis is seconds; posToVal(300) = 3s => 3000ms.
+    const u = { select: { width: 0 }, cursor: { left: 300 }, posToVal: (p: number) => p / 100 };
+    expect(seekTimeFromPlot(u)).toBe(3000);
+  });
+
+  it('returns null when the gesture was a brush-drag (select wider than threshold)', () => {
+    const u = { select: { width: 400 }, cursor: { left: 300 }, posToVal: (p: number) => p / 100 };
+    expect(seekTimeFromPlot(u)).toBeNull();
+  });
+
+  it('returns null when the cursor is off the plot', () => {
+    const offPlot = { select: { width: 0 }, cursor: { left: -1 }, posToVal: (p: number) => p };
+    expect(seekTimeFromPlot(offPlot)).toBeNull();
+    const noCursor = { select: { width: 0 }, cursor: {}, posToVal: (p: number) => p };
+    expect(seekTimeFromPlot(noCursor)).toBeNull();
   });
 });

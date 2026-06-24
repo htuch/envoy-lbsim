@@ -59,7 +59,7 @@ const snapshot: TopologySnapshot = {
 
 const TOTAL_CELLS = snapshot.clients.length + snapshot.envoys.length + snapshot.backends.length; // 9
 
-function renderHeatmap(selectedEnvoy = 2, onSelectEnvoy = vi.fn()) {
+function renderHeatmap(selectedEnvoy: number | null = 2, onSelectEnvoy = vi.fn()) {
   return render(
     <FleetHeatmap
       snapshot={snapshot}
@@ -188,6 +188,28 @@ describe('FleetHeatmap click interaction', () => {
     renderHeatmap(2, onSelect);
     const b0 = screen.getByText('b0');
     expect(b0.closest('button')).toBeNull();
+  });
+
+  it('toggles selection off (null) when the already-selected envoy is clicked', () => {
+    const onSelect = vi.fn();
+    renderHeatmap(2, onSelect);
+    const e2Button = screen.getByText('e2').closest('button')!;
+    fireEvent.click(e2Button);
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks no envoy selected when selectedEnvoy is null', () => {
+    renderHeatmap(null);
+    const envoyRow = document.querySelector('[data-tier="envoys"]')!;
+    expect(envoyRow.querySelector('[data-selected]')).toBeNull();
+  });
+
+  it('selects an envoy by index when none is selected', () => {
+    const onSelect = vi.fn();
+    renderHeatmap(null, onSelect);
+    fireEvent.click(screen.getByText('e1').closest('button')!);
+    expect(onSelect).toHaveBeenCalledWith(1);
   });
 });
 

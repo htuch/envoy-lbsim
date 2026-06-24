@@ -6,8 +6,8 @@ interface TopologyModalProps {
   open: boolean;
   snapshot: TopologySnapshot;
   onClose: () => void;
-  selectedEnvoy: number;
-  onSelectEnvoy: (index: number) => void;
+  selectedEnvoy: number | null;
+  onSelectEnvoy: (index: number | null) => void;
 }
 
 /**

@@ -219,6 +219,12 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().selectedEnvoy).toBe(3);
   });
 
+  it('setSelectedEnvoy(null) deselects', () => {
+    useSimStore.getState().setSelectedEnvoy(3);
+    useSimStore.getState().setSelectedEnvoy(null);
+    expect(useSimStore.getState().selectedEnvoy).toBeNull();
+  });
+
   // ---- handle / cache clearing ----------------------------------------------
 
   it('handle initialises to 0 and load() bumps it each call', async () => {

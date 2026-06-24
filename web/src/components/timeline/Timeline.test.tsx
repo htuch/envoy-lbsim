@@ -16,6 +16,7 @@ const { MockUplot } = vi.hoisted(() => {
     setSelect = vi.fn();
     posToVal = (pos: number): number => pos / 100;
     select = { left: 0, top: 0, width: 0, height: 0 };
+    cursor = { left: 0 };
     over = document.createElement('div');
     constructor(
       public opts: unknown,
@@ -96,6 +97,32 @@ describe('Timeline', () => {
     plot.select = { left: 100, top: 0, width: 2, height: 50 };
     act(() => plot.over.dispatchEvent(new MouseEvent('mouseup')));
     expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  it('seeks to the clicked virtual time on a plain click (not a drag)', async () => {
+    await loadStore();
+    const seekSpy = vi.fn().mockResolvedValue(undefined);
+    useSimStore.setState({ seek: seekSpy as unknown as (tMs: number) => Promise<void> });
+    render(<Timeline kind="envoy" gauge="inFlight" />);
+    const plot = MockUplot.instances[0]!;
+    // No drag region (width 0) => a plain click. cursor at 300px => 3s => 3000ms.
+    plot.select = { left: 0, top: 0, width: 0, height: 0 };
+    plot.cursor = { left: 300 };
+    act(() => plot.over.dispatchEvent(new MouseEvent('click')));
+    expect(seekSpy).toHaveBeenCalledWith(3000);
+  });
+
+  it('does not seek when the gesture was a brush-drag', async () => {
+    await loadStore();
+    const seekSpy = vi.fn().mockResolvedValue(undefined);
+    useSimStore.setState({ seek: seekSpy as unknown as (tMs: number) => Promise<void> });
+    render(<Timeline kind="envoy" gauge="inFlight" />);
+    const plot = MockUplot.instances[0]!;
+    // A committed drag region (width over the threshold) is a brush, not a seek.
+    plot.select = { left: 100, top: 0, width: 400, height: 50 };
+    plot.cursor = { left: 500 };
+    act(() => plot.over.dispatchEvent(new MouseEvent('click')));
+    expect(seekSpy).not.toHaveBeenCalled();
   });
 
   it('snaps the x scale in lock step when the shared selection changes', async () => {

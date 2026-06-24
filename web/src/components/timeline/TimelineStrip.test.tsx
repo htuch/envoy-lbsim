@@ -43,7 +43,7 @@ describe('TimelineStrip', () => {
 
   it('shows the gauge label and a legend swatch per entity', async () => {
     await loadStore();
-    render(<TimelineStrip kind="envoy" gauge="inFlight" label="Envoy · in-flight" />);
+    render(<TimelineStrip kind="envoy" gauge="inFlight" label="Envoy · in-flight" unit="reqs" />);
     expect(screen.getByText('Envoy · in-flight')).toBeInTheDocument();
     // Four envoys in the default scenario.
     expect(screen.getByText('#0')).toBeInTheDocument();
@@ -51,9 +51,22 @@ describe('TimelineStrip', () => {
     expect(screen.queryByText('#4')).not.toBeInTheDocument();
   });
 
+  it('renders the strip unit in the header', async () => {
+    await loadStore();
+    render(<TimelineStrip kind="envoy" gauge="inFlight" label="Envoy · in-flight" unit="reqs" />);
+    expect(screen.getByText('reqs')).toBeInTheDocument();
+  });
+
   it('caps the legend and shows an overflow count for dense fleets', async () => {
     await loadStore();
-    render(<TimelineStrip kind="client" gauge="emitRate" label="Client · emit rate" />);
+    render(
+      <TimelineStrip
+        kind="client"
+        gauge="emitRate"
+        label="Client · emit rate"
+        unit="reqs/interval"
+      />,
+    );
     // 50 clients, legend capped at 8 → "+42".
     expect(screen.getByText('#7')).toBeInTheDocument();
     expect(screen.queryByText('#8')).not.toBeInTheDocument();

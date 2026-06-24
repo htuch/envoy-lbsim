@@ -1,7 +1,12 @@
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import type { Series } from '@/lib/series';
-import { makeTimelineOpts, selectionFromPlot, type TimelineSync } from '@/lib/uplot-opts';
+import {
+  makeTimelineOpts,
+  seekTimeFromPlot,
+  selectionFromPlot,
+  type TimelineSync,
+} from '@/lib/uplot-opts';
 import { useSimStore } from '@/store/sim-store';
 
 /**
@@ -82,6 +87,14 @@ export function DerivedTimeline({
     };
     plot.over.addEventListener('mouseup', onMouseUp);
 
+    // Click-to-seek: a plain click (not a drag) moves the inspector to that
+    // virtual instant via seek(); see Timeline for the full rationale.
+    const onClick = (): void => {
+      const timeMs = seekTimeFromPlot(plot);
+      if (timeMs !== null) void useSimStore.getState().seek(timeMs);
+    };
+    plot.over.addEventListener('click', onClick);
+
     const applyView = (): void => {
       const sel = useSimStore.getState().selection;
       if (sel) {
@@ -122,6 +135,7 @@ export function DerivedTimeline({
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       plot.over.removeEventListener('mouseup', onMouseUp);
+      plot.over.removeEventListener('click', onClick);
       unsubscribe();
       plot.destroy();
     };

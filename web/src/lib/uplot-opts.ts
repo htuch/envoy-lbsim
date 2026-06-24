@@ -57,6 +57,31 @@ export function selectionFromPlot(u: SelectablePlot): [number, number] | null {
   return a <= b ? [a, b] : [b, a];
 }
 
+/** The uPlot surface `seekTimeFromPlot` reads to turn a plain click into a time. */
+export interface ClickablePlot {
+  /** Finished drag-select region; `width` distinguishes a click from a brush. */
+  select: { width: number };
+  /** Cursor position in pixels relative to the plotting area. */
+  cursor: { left?: number };
+  posToVal: (pos: number, scaleKey: string) => number;
+}
+
+/**
+ * Map a plain click on a timeline (NOT a brush-drag) to a virtual time in
+ * milliseconds, or null when the gesture was a drag (select width over the
+ * threshold) or the cursor is off the plot. Pure, so the click-to-seek math is
+ * unit-testable without a live canvas. Shared by every strip so clicking any
+ * timeline moves the inspector to that instant.
+ */
+export function seekTimeFromPlot(u: ClickablePlot): number | null {
+  // A committed drag (brush) is not a seek; the mouseup brush logic owns it.
+  if (u.select.width > MIN_DRAG_PX) return null;
+  const left = u.cursor.left;
+  if (left == null || left < 0) return null;
+  // posToVal returns seconds (the x axis is virtual seconds); seek wants ms.
+  return u.posToVal(left, 'x') * 1000;
+}
+
 /**
  * Build dense, axis-light uPlot options for one gauge strip: `entityCount` line
  * series over a virtual-time (seconds) x axis, no legend, hairline grid. When

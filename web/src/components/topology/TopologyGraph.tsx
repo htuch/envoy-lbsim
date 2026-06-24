@@ -17,10 +17,10 @@ const nodeTypes = { entity: EntityNode };
 
 interface TopologyGraphProps {
   snapshot: TopologySnapshot;
-  /** Currently inspected Envoy, highlighted in the graph. */
-  selectedEnvoy: number;
-  /** Called when an Envoy node is clicked, to drive the inspector. */
-  onSelectEnvoy: (index: number) => void;
+  /** Currently inspected Envoy, highlighted in the graph, or null when none. */
+  selectedEnvoy: number | null;
+  /** Called when an Envoy node is clicked, to drive the inspector (null deselects). */
+  onSelectEnvoy: (index: number | null) => void;
 }
 
 /**
@@ -48,9 +48,11 @@ export function TopologyGraph({
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const status = (node as EntityNodeType).data.status;
-      if (status.kind === 'envoy') onSelectEnvoy(status.index);
+      // Clicking the already-selected envoy toggles selection off (null).
+      if (status.kind === 'envoy')
+        onSelectEnvoy(status.index === selectedEnvoy ? null : status.index);
     },
-    [onSelectEnvoy],
+    [onSelectEnvoy, selectedEnvoy],
   );
 
   return (

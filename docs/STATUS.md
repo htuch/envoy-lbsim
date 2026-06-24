@@ -18,18 +18,25 @@ store. A headless Node CLI (`@elbsim/cli`) drives the whole simulator and runs a
 per-LB validation suite across all five real policies (see the Headless CLI
 section). The repo builds, type checks, lints, and tests green under the 95% gate.
 
-The web real-data integration is DONE: the app drives the real `SimController`
-worker (Comlink + SharedArrayBuffer), composing the real `LbModule` (await
-`loadLbModule()`) for all five policies, and the analytical views are fed from
-real worker telemetry (`frameToTopologySnapshot` for topology, `queryWindow` +
-`queryWindowLatencies` for cold-path analysis, `requestInspection` for the
-inspector) instead of the synthetic generators. The shell is the cockpit:
-timelines-dominant scrollable strip stack (envoy/backend/client gauges plus
-goodput and stage-split loss strips), a compact fleet-load heatmap as the
-in-cockpit topology with the full DAGRE graph on demand, and a side-by-side
-Inspector | Window dock. The production build emits `dist/assets/lb.wasm`
-alongside the hashed LB module. Verified by a Playwright cockpit CUJ against the
-real Maglev-Wasm worker.
+The web real-data integration is DONE and the frontend uses the real Wasm LB for
+ALL user-accessible features: the app drives the real `SimController` worker
+(Comlink + SharedArrayBuffer), composing the real `LbModule` (await
+`loadLbModule()`) for all five lifted policies, and every analytical view is fed
+from real worker telemetry (`frameToTopologySnapshot` for topology, `queryWindow`
++ `queryWindowLatencies` for cold-path analysis, `requestInspection` for the
+inspector). No synthetic generators or mock LB sit in any user-facing path: the
+synthetic snapshot/window/inspection generators and the TS mock LB survive only
+as test fixtures (`web/src/synthetic/*`, `mockLbModule`, the `MockSimRunner`),
+referenced from `*.test.*` only. The shell is the cockpit: timelines-dominant
+scrollable strip stack (envoy/backend/client gauges plus goodput and stage-split
+loss strips, each labeled with its unit), a compact fleet-load heatmap as the
+in-cockpit topology with the full DAGRE graph on demand, and an Inspector |
+Window dock. Cockpit interactions: clicking any timeline seeks the inspector to
+that virtual instant; clicking an envoy in the heatmap (or topology) selects it
+and clicking it again deselects it (selection is nullable); the inspector stacks
+the LB structure above the resolved-hosts table in a single scrolling column. The
+production build emits `dist/assets/lb.wasm` alongside the hashed LB module.
+Verified by a Playwright cockpit CUJ against the real Wasm worker.
 
 Remaining work: optional Track A polish (zone-aware locality bucketing, slow
 start). The concrete next step is under "Next step" below.

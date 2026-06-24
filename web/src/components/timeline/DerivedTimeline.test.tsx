@@ -17,6 +17,7 @@ const { MockUplot } = vi.hoisted(() => {
     setSelect = vi.fn();
     posToVal = (pos: number): number => pos / 100;
     select = { left: 0, top: 0, width: 0, height: 0 };
+    cursor = { left: 0 };
     over = document.createElement('div');
     constructor(
       public opts: unknown,
@@ -135,6 +136,45 @@ describe('DerivedTimeline', () => {
     plot.select = { left: 100, top: 0, width: 2, height: 50 };
     act(() => plot.over.dispatchEvent(new MouseEvent('mouseup')));
     expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  it('seeks to the clicked virtual time on a plain click (not a drag)', async () => {
+    await loadStore();
+    const seekSpy = vi.fn().mockResolvedValue(undefined);
+    useSimStore.setState({ seek: seekSpy as unknown as (tMs: number) => Promise<void> });
+    const build = (): Series => ({
+      x: [0, 1],
+      ys: [
+        [1, 2],
+        [3, 4],
+      ],
+    });
+    render(<DerivedTimeline lines={LINES} build={build} />);
+    const plot = MockUplot.instances[0]!;
+    // No drag region (width 0) => a plain click. cursor at 200px => 2s => 2000ms.
+    plot.select = { left: 0, top: 0, width: 0, height: 0 };
+    plot.cursor = { left: 200 };
+    act(() => plot.over.dispatchEvent(new MouseEvent('click')));
+    expect(seekSpy).toHaveBeenCalledWith(2000);
+  });
+
+  it('does not seek when the gesture was a brush-drag', async () => {
+    await loadStore();
+    const seekSpy = vi.fn().mockResolvedValue(undefined);
+    useSimStore.setState({ seek: seekSpy as unknown as (tMs: number) => Promise<void> });
+    const build = (): Series => ({
+      x: [0, 1],
+      ys: [
+        [1, 2],
+        [3, 4],
+      ],
+    });
+    render(<DerivedTimeline lines={LINES} build={build} />);
+    const plot = MockUplot.instances[0]!;
+    plot.select = { left: 100, top: 0, width: 400, height: 50 };
+    plot.cursor = { left: 500 };
+    act(() => plot.over.dispatchEvent(new MouseEvent('click')));
+    expect(seekSpy).not.toHaveBeenCalled();
   });
 
   it('snaps the x scale in lock step when the shared selection changes', async () => {

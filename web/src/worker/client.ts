@@ -3,8 +3,8 @@ import * as Comlink from 'comlink';
 
 /**
  * Spawn the simulation worker and wrap it as a {@link SimWorkerApi} proxy.
- * Points at the real SimController worker backed by the composite LB module
- * (Wasm for maglev, mock for all other policies). Bootstrap glue,
+ * Points at the real SimController worker backed by the real Wasm LB module
+ * (`loadLbModule()`), which serves all five lifted policies. Bootstrap glue,
  * excluded from coverage like `main.tsx`.
  */
 export interface SimWorkerHandle {

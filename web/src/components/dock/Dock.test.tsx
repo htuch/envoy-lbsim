@@ -139,6 +139,34 @@ describe('Dock', () => {
     expect(screen.getByText(/select an envoy/i)).toBeInTheDocument();
   });
 
+  it('shows the empty hint when no envoy is selected, even with a stale inspection', () => {
+    const inspection = {
+      envoy: 0,
+      t: 0,
+      policy: 'maglev' as const,
+      panic: false,
+      hosts: [],
+      structure: { kind: 'none' as const },
+    };
+    useSimStore.setState({ selectedEnvoy: null, inspection, inspectionLoading: false });
+    render(<Dock />);
+    expect(screen.getByText(/select an envoy/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('lb-inspector')).not.toBeInTheDocument();
+  });
+
+  it('does not call loadInspection when selectedEnvoy is null', () => {
+    useSimStore.setState({
+      status: { state: 'paused', virtualTimeMs: 1000, speed: 1 },
+      selectedEnvoy: 0,
+    });
+    render(<Dock />);
+    loadInspectionSpy.mockClear();
+    act(() => {
+      useSimStore.setState({ selectedEnvoy: null });
+    });
+    expect(loadInspectionSpy).not.toHaveBeenCalled();
+  });
+
   it('shows a loading spinner while inspectionLoading and no inspection', () => {
     useSimStore.setState({ inspection: null, inspectionLoading: true });
     render(<Dock />);

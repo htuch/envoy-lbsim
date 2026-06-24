@@ -2,7 +2,12 @@ import { type EntityKind, gaugeIndex } from '@elbsim/protocol';
 import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import { buildSeries } from '@/lib/series';
-import { makeTimelineOpts, selectionFromPlot, type TimelineSync } from '@/lib/uplot-opts';
+import {
+  makeTimelineOpts,
+  seekTimeFromPlot,
+  selectionFromPlot,
+  type TimelineSync,
+} from '@/lib/uplot-opts';
 import { useSimStore } from '@/store/sim-store';
 
 /**
@@ -58,6 +63,16 @@ export function Timeline({
     };
     plot.over.addEventListener('mouseup', onMouseUp);
 
+    // Click-to-seek: a plain click (not a drag) moves the inspector to that
+    // virtual instant. seek() pauses and sets the virtual clock; the dock's
+    // pause/seek effect then refreshes the inspection at that time. A drag is a
+    // brush (handled above), so seekTimeFromPlot returns null for it.
+    const onClick = (): void => {
+      const timeMs = seekTimeFromPlot(plot);
+      if (timeMs !== null) void useSimStore.getState().seek(timeMs);
+    };
+    plot.over.addEventListener('click', onClick);
+
     // Lock step: when the shared selection changes, every strip snaps its x
     // scale to the same target in unison (the window when set, the live data
     // extent when cleared). `setScale` is explicit because a bare `redraw` does
@@ -104,6 +119,7 @@ export function Timeline({
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       plot.over.removeEventListener('mouseup', onMouseUp);
+      plot.over.removeEventListener('click', onClick);
       unsubscribe();
       plot.destroy();
     };

@@ -10,12 +10,15 @@ import { type DerivedLine, DerivedTimeline } from './DerivedTimeline';
  */
 export function DerivedStrip({
   label,
+  unit,
   lines,
   build,
   revision,
   height = 96,
 }: {
   label: string;
+  /** Measurement unit for the strip, rendered subtly beside the title. */
+  unit: string;
   lines: DerivedLine[];
   build: () => Series;
   revision?: unknown;
@@ -24,8 +27,11 @@ export function DerivedStrip({
   return (
     <section className="rounded-md border bg-card">
       <header className="flex items-center justify-between border-b px-2.5 py-1.5">
-        <h3 className="font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="flex items-baseline gap-1.5 font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           {label}
+          <span className="text-[9px] font-normal lowercase tracking-normal text-muted-foreground/70">
+            {unit}
+          </span>
         </h3>
         <ul className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           {lines.map((line) => (

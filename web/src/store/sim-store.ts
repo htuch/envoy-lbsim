@@ -42,8 +42,8 @@ export interface SimStore {
   /** The committed brushed x-window shared across all timelines (null = live). */
   selection: TimelineSelection;
 
-  /** The currently selected Envoy replica index (0-based). */
-  selectedEnvoy: number;
+  /** The currently selected Envoy replica index (0-based), or null when none. */
+  selectedEnvoy: number | null;
 
   /**
    * Monotonically-bumped version integer. Incremented on every {@link load} so
@@ -89,8 +89,8 @@ export interface SimStore {
   setConfig: (config: SimConfig) => void;
   /** Commit (or clear, with `null`) the shared brushed window. */
   setSelection: (selection: TimelineSelection) => void;
-  /** Update the selected Envoy replica index. */
-  setSelectedEnvoy: (i: number) => void;
+  /** Update the selected Envoy replica index, or `null` to deselect. */
+  setSelectedEnvoy: (i: number | null) => void;
   /**
    * Fetch window aggregate and latency samples for the given query in parallel.
    * Drops the result if the run handle changed (a `load()` happened mid-flight).

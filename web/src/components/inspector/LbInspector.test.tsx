@@ -17,6 +17,17 @@ describe('LbInspector', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
   });
 
+  it('stacks the LB structure above the resolved-hosts table', () => {
+    render(<LbInspector inspection={makeInspection(config, 0, 0, 'maglev')} />);
+    const structureTitle = screen.getByText('Maglev table');
+    const hostsTitle = screen.getByText('Resolved hosts');
+    // DOCUMENT_POSITION_FOLLOWING (4) set => structure precedes hosts in the DOM,
+    // i.e. structure renders on top and hosts below it in the vertical column.
+    expect(
+      structureTitle.compareDocumentPosition(hostsTitle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('renders the Maglev table with a slot strip and shares', () => {
     render(<LbInspector inspection={makeInspection(config, 0, 0, 'maglev')} />);
     expect(screen.getByText('Maglev table')).toBeInTheDocument();
