@@ -163,20 +163,23 @@ prints per-backend distribution, goodput, and latency for a scenario;
 `elbsim validate` runs a per-LB validation suite covering expected
 distribution, consistency, least-request, and cross-cutting
 goodput/conservation/determinism plus a queryWindow-vs-recompute
-stats-aggregation cross-check. Cases run on real Wasm where a policy is
-lifted (maglev) and the mock otherwise, each labeled REAL/MOCK; real-only
+stats-aggregation cross-check. The default mode is REAL: lifted policies
+(maglev today) use the real Wasm LB; unlifted policies require --mock. Real-only
 checks SKIP on the mock and upgrade as Track A lands ring_hash and the EDF
-policies. It is an exploration tool, not a CI gate.
+policies. `validate` with no --policy covers the lifted set (maglev today).
+`pnpm run wasm:build` self-bootstraps the Envoy and abseil submodules before
+building. It is an exploration tool, not a CI gate.
 
 Working invocations (the bin is the entry point; npm scripts delegate to it):
 
-  pnpm --filter @elbsim/cli run validate -- --mock
-  pnpm --filter @elbsim/cli run validate -- --mock --policy maglev
-  pnpm --filter @elbsim/cli run sim -- --scenario default --policy maglev --mock
+  node packages/cli/bin/elbsim.mjs validate
+  node packages/cli/bin/elbsim.mjs validate --policy maglev
   node packages/cli/bin/elbsim.mjs validate --mock
+  node packages/cli/bin/elbsim.mjs validate --mock --policy round_robin
   node packages/cli/bin/elbsim.mjs run --scenario default --policy maglev
+  node packages/cli/bin/elbsim.mjs run --policy ring_hash --mock
 
-Omit `--mock` to use real Wasm (requires a built `packages/wasm-lb` output).
+Unlifted policies (ring_hash, round_robin, least_request, random) need --mock.
 
 ## Next step
 

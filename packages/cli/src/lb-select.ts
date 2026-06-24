@@ -13,7 +13,7 @@ export const LIFTED_POLICIES: ReadonlySet<EnvoyLbPolicyKind> = new Set<EnvoyLbPo
   'maglev',
 ]);
 
-export type LbMode = 'auto' | 'mock' | 'real';
+export type LbMode = 'real' | 'mock';
 
 /** Injectable loader so tests can supply a fake real module without emsdk. */
 export interface SelectDeps {
@@ -34,9 +34,7 @@ const defaultDeps: SelectDeps = {
 
 /**
  * Resolve which LB module to drive a policy with. `mock` forces the mock;
- * `real` requires real Wasm (errors if the policy is unlifted or unbuilt);
- * `auto` prefers real for lifted policies and otherwise falls back to the mock
- * with an explanatory note.
+ * `real` requires real Wasm (errors if the policy is unlifted or unbuilt).
  */
 export async function selectLb(
   policy: EnvoyLbPolicyKind,
@@ -47,30 +45,13 @@ export async function selectLb(
 
   const lifted = LIFTED_POLICIES.has(policy);
 
-  if (mode === 'real') {
-    if (!lifted) throw new Error(`policy '${policy}' is not lifted to real Wasm yet`);
-    const real = await deps.loadReal();
-    if (!real) {
-      throw new Error('wasm-lb artifact not built; run `pnpm --filter @elbsim/wasm-lb build`');
-    }
-    return { module: real, label: 'real' };
-  }
-
-  // auto
-  if (!lifted) {
-    return {
-      module: mockLbModule,
-      label: 'mock',
-      note: `policy '${policy}' not lifted; using mock LB`,
-    };
-  }
+  if (!lifted)
+    throw new Error(
+      `policy '${policy}' is not lifted to real Wasm yet; pass --mock to run it against the stub`,
+    );
   const real = await deps.loadReal();
   if (!real) {
-    return {
-      module: mockLbModule,
-      label: 'mock',
-      note: 'wasm-lb artifact not built; using mock LB',
-    };
+    throw new Error('real Wasm LB not built; run `pnpm run wasm:build`');
   }
   return { module: real, label: 'real' };
 }

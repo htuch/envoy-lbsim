@@ -223,3 +223,22 @@ suite complements it at the full-kernel level rather than replacing it.
 None blocking. The `LIFTED_POLICIES` set is the one moving part; it is updated in
 lockstep with Track A and is the single switch that flips real-only checks from
 SKIP to live.
+
+## Revision (2026-06-24): real-only default
+
+The `auto` mode described in the Decisions section above was removed in favor
+of a simpler two-way choice:
+
+- Default mode is now REAL. `elbsim validate` (no flags) runs only the lifted
+  set (maglev today); `elbsim validate --mock` runs all policies on the mock.
+- `--real` flag removed; `--mock` is the only override.
+- `LIFTED_POLICIES` remains the single source of truth; adding a policy there
+  immediately makes it the default for validate/run without needing a flag.
+- `validate` with no --policy in real mode filters to `LIFTED_POLICIES` so
+  unlifted policies never throw unexpectedly.
+- Error messages on unlifted policies now name `--mock` explicitly so users
+  know how to proceed.
+- `pnpm run wasm:build` now runs `ensure-submodules.sh` first, making the
+  build self-bootstrapping without a separate `git submodule update` step.
+- The `note` field on `SelectedLb`, `PolicyResult`, and `RunMeta` was removed
+  (it existed only to explain auto-mode fallbacks, which no longer exist).

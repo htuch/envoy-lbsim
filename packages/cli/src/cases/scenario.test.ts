@@ -21,4 +21,9 @@ describe('scenario', () => {
   it('is deterministic in shape across calls', () => {
     expect(scenario('random')).toEqual(scenario('random'));
   });
+
+  it('applies a custom requestKey override', () => {
+    const cfg = scenario('maglev', { keys: { kind: 'uniform', n: 50_000 } });
+    expect(cfg.clients.requestKey).toEqual({ kind: 'uniform', n: 50_000 });
+  });
 });

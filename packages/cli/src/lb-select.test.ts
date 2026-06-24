@@ -14,26 +14,8 @@ describe('selectLb', () => {
     expect(s.module).toBe(mockLbModule);
   });
 
-  it('mode auto uses real for a lifted policy when the artifact is present', async () => {
-    const s = await selectLb('maglev', 'auto', present);
-    expect(s.label).toBe('real');
-    expect(s.module).toBe(fakeReal);
-  });
-
-  it('mode auto falls back to mock with a note for an unlifted policy', async () => {
-    const s = await selectLb('round_robin', 'auto', present);
-    expect(s.label).toBe('mock');
-    expect(s.note).toMatch(/not lifted/);
-  });
-
-  it('mode auto falls back to mock with a note when the artifact is absent', async () => {
-    const s = await selectLb('maglev', 'auto', absent);
-    expect(s.label).toBe('mock');
-    expect(s.note).toMatch(/not built/);
-  });
-
   it('mode real throws for an unlifted policy', async () => {
-    await expect(selectLb('random', 'real', present)).rejects.toThrow(/not lifted/);
+    await expect(selectLb('random', 'real', present)).rejects.toThrow(/--mock/);
   });
 
   it('mode real throws when the artifact is absent', async () => {

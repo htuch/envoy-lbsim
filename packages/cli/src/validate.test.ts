@@ -55,12 +55,4 @@ describe('runValidation (structural, on the mock)', () => {
     const statuses = result.policies[0]?.cases.flatMap((c) => c.checks.map((k) => k.status)) ?? [];
     expect(statuses).toContain('fail');
   });
-
-  it('includes a note in the PolicyResult when mode=auto and policy is unlifted', async () => {
-    // round_robin is not in LIFTED_POLICIES; auto mode falls back to mock with a note.
-    const result = await runValidation(['round_robin'], 'auto', undefined, [alwaysFailCase]);
-    const p = result.policies[0];
-    expect(p?.lbLabel).toBe('mock');
-    expect(p?.note).toMatch(/not lifted/);
-  });
 });

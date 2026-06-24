@@ -53,7 +53,8 @@ describe('main', () => {
 
   it('run without --scenario or --config uses scenario() fallback', async () => {
     const { io, out } = capture();
-    const code = await main(['run', '--policy', 'random', '--mock'], io, deps);
+    // default mode is real; deps.loadReal returns mockLbModule which acts as the real module
+    const code = await main(['run', '--policy', 'maglev'], io, deps);
     expect(code).toBe(0);
     expect(out.join('\n')).toMatch(/goodput/);
   });
@@ -65,19 +66,35 @@ describe('main', () => {
     expect(() => JSON.parse(out.join('\n'))).not.toThrow();
   });
 
-  it('validate without explicit policies runs all policies', async () => {
+  it('validate without explicit policies in mock mode runs all policies', async () => {
     const { io, out } = capture();
     const code = await main(['validate', '--mock'], io, deps);
     expect([0, 1]).toContain(code);
     expect(out.join('\n')).toMatch(/round_robin/);
   });
 
-  it('run with --real flag but mock deps falls back via selectLb error', async () => {
-    const { io } = capture();
-    const realDeps = { loadReal: async (): Promise<LbModule | undefined> => undefined };
-    const code = await main(['run', '--real', '--policy', 'maglev', '--mock'], io, realDeps);
-    // --mock takes precedence because it is checked first in the mode ternary (mock ? 'mock' : real ? 'real' : 'auto')
-    expect(code).toBe(0);
+  it('validate with no --policy in real (default) mode runs only lifted set', async () => {
+    const { io, out } = capture();
+    const code = await main(['validate'], io, deps);
+    expect([0, 1]).toContain(code);
+    // maglev is in LIFTED_POLICIES; round_robin is not
+    expect(out.join('\n')).toMatch(/maglev/);
+    expect(out.join('\n')).not.toMatch(/round_robin/);
+  });
+
+  it('validate --mock with no --policy runs ALL_POLICIES', async () => {
+    const { io, out } = capture();
+    const code = await main(['validate', '--mock'], io, deps);
+    expect([0, 1]).toContain(code);
+    expect(out.join('\n')).toMatch(/round_robin/);
+    expect(out.join('\n')).toMatch(/maglev/);
+  });
+
+  it('unlifted --policy in default real mode exits 2 with /not lifted/ message', async () => {
+    const { io, err } = capture();
+    const code = await main(['validate', '--policy', 'ring_hash'], io, deps);
+    expect(code).toBe(2);
+    expect(err.join('\n')).toMatch(/not lifted/);
   });
 
   it('cmdValidate surfaces failed > 0 with exit code 1', async () => {
@@ -96,8 +113,8 @@ describe('main', () => {
         throw new Error('unexpected runtime failure');
       },
     };
-    // --real forces selectLb to call loadReal, which throws (no mock fallback).
-    const code = await main(['run', '--real', '--policy', 'maglev'], io, throwingDeps);
+    // default mode is real; loadReal throws, triggering the catch block
+    const code = await main(['run', '--policy', 'maglev'], io, throwingDeps);
     expect(code).toBe(2);
     expect(err.join('\n')).toMatch(/unexpected runtime failure/);
   });

@@ -8,7 +8,7 @@ import {
 import { scenario } from './cases/scenario';
 import { ALL_POLICIES } from './cases/types';
 import { runScenario } from './driver';
-import { type LbMode, type SelectDeps, selectLb } from './lb-select';
+import { type LbMode, LIFTED_POLICIES, type SelectDeps, selectLb } from './lb-select';
 import { formatRunReport, formatValidationReport, jsonReplacer } from './report';
 import { computeStats } from './stats';
 import { runValidation } from './validate';
@@ -33,7 +33,7 @@ interface Flags {
 }
 
 const USAGE =
-  'usage: elbsim <run|validate> [--policy p]... [--mock|--real] [--json] [--config file|--scenario name]';
+  'usage: elbsim <run|validate> [--policy p]... [--mock] [--json] [--config file|--scenario name]';
 
 function isPolicy(s: string): s is EnvoyLbPolicyKind {
   return (ALL_POLICIES as readonly string[]).includes(s);
@@ -43,7 +43,6 @@ function parseFlags(args: readonly string[]): Flags {
   const policies: EnvoyLbPolicyKind[] = [];
   let json = false;
   let mock = false;
-  let real = false;
   let config: string | undefined;
   let scenarioName: string | undefined;
   for (let i = 0; i < args.length; i++) {
@@ -54,9 +53,6 @@ function parseFlags(args: readonly string[]): Flags {
         break;
       case '--mock':
         mock = true;
-        break;
-      case '--real':
-        real = true;
         break;
       case '--policy': {
         const v = args[++i];
@@ -71,7 +67,7 @@ function parseFlags(args: readonly string[]): Flags {
         break;
     }
   }
-  const mode: LbMode = mock ? 'mock' : real ? 'real' : 'auto';
+  const mode: LbMode = mock ? 'mock' : 'real';
   return {
     policies,
     json,
@@ -91,7 +87,11 @@ function loadScenario(flags: Flags, policy: EnvoyLbPolicyKind): SimConfig {
 }
 
 async function cmdValidate(flags: Flags, io: Io, deps?: SelectDeps): Promise<number> {
-  const policies = flags.policies.length ? flags.policies : ALL_POLICIES;
+  const policies = flags.policies.length
+    ? flags.policies
+    : flags.mode === 'mock'
+      ? ALL_POLICIES
+      : ALL_POLICIES.filter((p) => LIFTED_POLICIES.has(p));
   const result = await runValidation(policies, flags.mode, deps);
   io.out(flags.json ? JSON.stringify(result, jsonReplacer, 2) : formatValidationReport(result));
   return result.failed > 0 ? 1 : 0;
@@ -109,7 +109,7 @@ async function cmdRun(flags: Flags, io: Io, deps?: SelectDeps): Promise<number> 
   const sel = await selectLb(policy, flags.mode, deps);
   const { events } = runScenario(config, { module: sel.module, label: sel.label });
   const stats = computeStats(events);
-  const meta = { policy, lbLabel: sel.label, ...(sel.note ? { note: sel.note } : {}) };
+  const meta = { policy, lbLabel: sel.label };
   io.out(
     flags.json ? JSON.stringify({ meta, stats }, jsonReplacer, 2) : formatRunReport(stats, meta),
   );

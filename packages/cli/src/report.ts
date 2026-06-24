@@ -6,7 +6,6 @@ import type { ValidationResult } from './validate';
 export interface RunMeta {
   policy: EnvoyLbPolicyKind;
   lbLabel: LbLabel;
-  note?: string;
 }
 
 const GLYPH: Record<'pass' | 'fail' | 'skip', string> = {
@@ -24,7 +23,7 @@ export function formatValidationReport(result: ValidationResult): string {
   const lines: string[] = [];
   for (const p of result.policies) {
     lines.push('');
-    lines.push(`${p.policy} ${badge(p.lbLabel)}${p.note ? `  (${p.note})` : ''}`);
+    lines.push(`${p.policy} ${badge(p.lbLabel)}`);
     for (const c of p.cases) {
       lines.push(`  ${c.title}`);
       for (const chk of c.checks) {
@@ -40,9 +39,7 @@ export function formatValidationReport(result: ValidationResult): string {
 /** Human-readable single-run stats report (the `run` subcommand). */
 export function formatRunReport(stats: Stats, meta: RunMeta): string {
   const lines: string[] = [];
-  lines.push(
-    `scenario: ${meta.policy} ${badge(meta.lbLabel)}${meta.note ? `  (${meta.note})` : ''}`,
-  );
+  lines.push(`scenario: ${meta.policy} ${badge(meta.lbLabel)}`);
   lines.push('');
   lines.push('backend  picks  completed');
   const rows = [...stats.perBackend.entries()].sort(([a], [b]) => a - b);

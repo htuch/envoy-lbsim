@@ -37,7 +37,12 @@ export const distributionCases: LbValidationCase[] = [
     title: 'Pick share tracks host weight',
     appliesTo: ['round_robin', 'least_request', 'ring_hash', 'maglev'],
     build: (p) =>
-      scenario(p, { backends: 4, overrides: { '0': { weight: 4 }, '1': { weight: 2 } } }),
+      scenario(p, {
+        backends: 4,
+        durationMs: 8_000,
+        keys: { kind: 'uniform', n: 100_000 },
+        overrides: { '0': { weight: 4 }, '1': { weight: 2 } },
+      }),
     assert: (s): Check[] => {
       // weights: b0=4, b1=2, b2=1, b3=1 -> total 8
       const weights = new Map<number, number>([

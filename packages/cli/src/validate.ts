@@ -21,7 +21,6 @@ export interface CaseResult {
 export interface PolicyResult {
   policy: EnvoyLbPolicyKind;
   lbLabel: LbLabel;
-  note?: string;
   cases: CaseResult[];
 }
 
@@ -80,7 +79,6 @@ export async function runValidation(
     out.push({
       policy,
       lbLabel: sel.label,
-      ...(sel.note ? { note: sel.note } : {}),
       cases: caseResults,
     });
   }

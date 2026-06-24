@@ -9,7 +9,6 @@ export type LbLabel = 'real' | 'mock';
 export interface SelectedLb {
   module: LbModule;
   label: LbLabel;
-  note?: string;
 }
 
 export interface RunResult {

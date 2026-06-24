@@ -8,6 +8,7 @@ export interface ScenarioOpts {
   backends?: number;
   durationMs?: number;
   ratePerSec?: number;
+  keys?: SimConfig['clients']['requestKey'];
   /** Sparse per-backend overrides keyed by stringified index. */
   overrides?: Record<string, unknown>;
 }
@@ -26,7 +27,7 @@ export function scenario(policy: EnvoyLbPolicyKind, opts: ScenarioOpts = {}): Si
     clients: {
       count: 20,
       arrival: { kind: 'poisson', ratePerSec: opts.ratePerSec ?? 50 },
-      requestKey: { kind: 'zipf', n: 1_000, s: 1.1 },
+      requestKey: opts.keys ?? { kind: 'zipf', n: 1_000, s: 1.1 },
       lb: { kind: 'round_robin' },
     },
     network: {

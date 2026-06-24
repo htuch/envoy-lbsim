@@ -7,7 +7,7 @@
     ".": "./bindings/index.ts"
   },
   "scripts": {
-    "build": "bash scripts/with-emsdk.sh make build",
+    "build": "bash scripts/ensure-submodules.sh && bash scripts/with-emsdk.sh make build",
     "build:smoke": "bash scripts/with-emsdk.sh make smoke",
     "clean": "make clean",
     "typecheck": "tsc --noEmit -p tsconfig.json",

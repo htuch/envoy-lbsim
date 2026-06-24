@@ -37,14 +37,6 @@ describe('formatValidationReport', () => {
     expect(text).toMatch(/1 failed/);
     expect(text).toMatch(/1 skipped/);
   });
-
-  it('shows the fallback note when present', () => {
-    const withNote: ValidationResult = {
-      ...result,
-      policies: [{ ...result.policies[0]!, lbLabel: 'mock', note: 'using mock LB' }],
-    };
-    expect(formatValidationReport(withNote)).toContain('using mock LB');
-  });
 });
 
 describe('formatRunReport', () => {
@@ -63,12 +55,6 @@ describe('formatRunReport', () => {
     const text = formatRunReport(stats, { policy: 'maglev', lbLabel: 'real' });
     expect(text).toMatch(/goodput/i);
     expect(text).toContain('100.00%');
-  });
-
-  it('shows note when provided', () => {
-    const text = formatRunReport(stats, { policy: 'maglev', lbLabel: 'mock', note: 'fallback' });
-    expect(text).toContain('fallback');
-    expect(text).toContain('[MOCK]');
   });
 });
 
