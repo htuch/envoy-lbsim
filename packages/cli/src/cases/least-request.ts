@@ -17,7 +17,6 @@ export const leastRequestCases: LbValidationCase[] = [
       }),
     assert: (s): Check[] => {
       const sh = shares(s.perBackend);
-      /* c8 ignore next -- ?? 0 only triggers if backend 0 absent, never with 4 active backends */
       const slow = sh.get(0) ?? 0;
       const others = [1, 2, 3].map((b) => sh.get(b) ?? 0);
       const avgOther = others.reduce((a, b) => a + b, 0) / others.length;

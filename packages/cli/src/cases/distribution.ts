@@ -6,7 +6,6 @@ export function shares(perBackend: Map<number, { picks: number }>): Map<number, 
   let total = 0;
   for (const c of perBackend.values()) total += c.picks;
   const out = new Map<number, number>();
-  /* c8 ignore next -- only reachable with zero events, guarded by perBackend.size > 0 checks */
   if (total === 0) return out;
   for (const [b, c] of perBackend) out.set(b, c.picks / total);
   return out;
@@ -49,7 +48,6 @@ export const distributionCases: LbValidationCase[] = [
       ]);
       const sh = shares(s.perBackend);
       let worst = 0;
-      /* c8 ignore next -- ?? 0 only triggers if backend absent, never with 4 active backends */
       for (const [b, w] of weights) worst = Math.max(worst, Math.abs((sh.get(b) ?? 0) - w));
       return [
         {
