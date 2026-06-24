@@ -73,28 +73,70 @@ export type EnvoyPool = z.infer<typeof EnvoyPool>;
 export const BackendHealth = z.enum(['healthy', 'degraded', 'unhealthy', 'draining']);
 export type BackendHealth = z.infer<typeof BackendHealth>;
 
-/** Per-backend behavior; used as the pool default and as sparse overrides. */
-export const BackendSpec = z.object({
+/**
+ * Per-backend fields, without pool-level defaults. {@link BackendSpec} adds the
+ * defaults for the pool default; {@link BackendSpecOverride} stays default-free
+ * so a sparse override only carries the fields the caller actually set.
+ */
+const backendFields = {
   /** Max concurrent requests the backend serves before queueing. */
   capacity: z.number().int().positive(),
   /** Service-time distribution (virtual ms) per request. */
   latency: Distribution,
   /** Pending queue depth; requests beyond capacity+queue are shed. */
+  queueSize: z.number().int().nonnegative(),
+  health: BackendHealth,
+  /** LB weight (relative). */
+  weight: z.number().int().positive(),
+  locality: Locality,
+} as const;
+
+/** Per-backend behavior; used as the pool default (all fields defaulted). */
+export const BackendSpec = z.object({
+  ...backendFields,
   queueSize: z.number().int().nonnegative().default(0),
   health: BackendHealth.default('healthy'),
-  /** LB weight (relative). */
   weight: z.number().int().positive().default(1),
   locality: Locality.default({ region: 'r1', zone: 'z1' }),
 });
 export type BackendSpec = z.infer<typeof BackendSpec>;
 
+/**
+ * A sparse per-backend override. Only the fields explicitly set apply; absent
+ * fields stay undefined (no defaults) so they fall through to the pool default
+ * in {@link resolveBackend}. Using `BackendSpec.partial()` here would be wrong:
+ * Zod still materializes each field's `.default()` when absent, clobbering the
+ * pool default with the type default (e.g. queueSize -> 0).
+ */
+export const BackendSpecOverride = z.object(backendFields).partial();
+export type BackendSpecOverride = z.infer<typeof BackendSpecOverride>;
+
 export const BackendPool = z.object({
   count: z.number().int().positive(),
   defaults: BackendSpec,
   /** Sparse per-index overrides keyed by stringified backend index. */
-  overrides: z.record(z.string(), BackendSpec.partial()).default({}),
+  overrides: z.record(z.string(), BackendSpecOverride).default({}),
 });
 export type BackendPool = z.infer<typeof BackendPool>;
+
+/**
+ * Resolve backend `index`'s effective spec: the pool default with any sparse
+ * override overlaid. The single source of truth for per-backend resolution, so
+ * every consumer (kernel, views) reads overrides consistently.
+ */
+export function resolveBackend(pool: BackendPool, index: number): BackendSpec {
+  const o = pool.overrides[String(index)];
+  if (!o) return pool.defaults;
+  const d = pool.defaults;
+  return {
+    capacity: o.capacity ?? d.capacity,
+    latency: o.latency ?? d.latency,
+    queueSize: o.queueSize ?? d.queueSize,
+    health: o.health ?? d.health,
+    weight: o.weight ?? d.weight,
+    locality: o.locality ?? d.locality,
+  };
+}
 
 // --- Network + timeouts ------------------------------------------------------
 

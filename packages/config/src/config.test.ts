@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSimConfig, SimConfig, safeParseSimConfig } from './config';
 import { defaultSimConfig } from './defaults';
 import { Distribution, KeyDistribution } from './distributions';
+import { BackendPool, BackendSpecOverride, resolveBackend } from './entities';
 import { EnvoyLbPolicy, LeastRequestPolicy, MaglevPolicy } from './lb-policies';
 
 describe('SimConfig', () => {
@@ -55,6 +56,28 @@ describe('EnvoyLbPolicy', () => {
       expect(ring.minimumRingSize).toBe(1024);
       expect(ring.hashFunction).toBe('xx_hash');
     }
+  });
+});
+
+describe('backend overrides', () => {
+  it('keeps overrides sparse: absent fields are not defaulted', () => {
+    // Only weight is set; queueSize must NOT be materialized to its 0 default.
+    const override = BackendSpecOverride.parse({ weight: 2 });
+    expect(override).toEqual({ weight: 2 });
+    expect(override.queueSize).toBeUndefined();
+  });
+
+  it('resolveBackend overlays only the set fields onto the pool default', () => {
+    const pool = BackendPool.parse({
+      count: 4,
+      defaults: { capacity: 24, latency: { kind: 'constant', value: 5 }, queueSize: 48 },
+      overrides: { '0': { weight: 2 }, '5': { health: 'degraded' } },
+    });
+    // Overridden weight applies; queueSize falls through to the pool default.
+    expect(resolveBackend(pool, 0)).toMatchObject({ weight: 2, queueSize: 48, capacity: 24 });
+    expect(resolveBackend(pool, 5)).toMatchObject({ health: 'degraded', queueSize: 48 });
+    // A backend with no override is exactly the pool default.
+    expect(resolveBackend(pool, 1)).toEqual(pool.defaults);
   });
 });
 
