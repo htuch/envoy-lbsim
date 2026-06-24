@@ -1,4 +1,5 @@
 export * from './cases/types';
+export * from './cli';
 export * from './driver';
 export * from './lb-select';
 export * from './report';

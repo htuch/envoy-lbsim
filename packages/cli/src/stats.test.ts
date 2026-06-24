@@ -74,4 +74,15 @@ describe('computeStats', () => {
     expect(s.latencyP99).toBe(0);
     expect(s.outcomes.total).toBe(0);
   });
+
+  it('handles lb_pick with no prior emitted event (key is undefined)', () => {
+    // Simulate an lb_pick with no preceding emitted; key lookup returns undefined.
+    // The backend should still be counted but keyConsistency remains empty.
+    const events: RequestEvent[] = [
+      { t: 1, req: 99, phase: 'lb_pick', envoy: 0, backend: 3, attempts: 1 },
+    ];
+    const s = computeStats(events);
+    expect(s.perBackend.get(3)).toEqual({ picks: 1, completed: 0 });
+    expect(s.keyConsistency.size).toBe(0);
+  });
 });

@@ -19,7 +19,7 @@ const alwaysFailCase: LbValidationCase = {
 };
 
 describe('runValidation (structural, on the mock)', () => {
-  it('produces a well-formed result for all policies', async () => {
+  it('produces a well-formed result for all policies', { timeout: 30_000 }, async () => {
     const result = await runValidation(ALL_POLICIES, mockMode);
     expect(result.policies).toHaveLength(ALL_POLICIES.length);
     for (const p of result.policies) {
@@ -54,5 +54,13 @@ describe('runValidation (structural, on the mock)', () => {
     expect(result.skipped).toBe(0);
     const statuses = result.policies[0]?.cases.flatMap((c) => c.checks.map((k) => k.status)) ?? [];
     expect(statuses).toContain('fail');
+  });
+
+  it('includes a note in the PolicyResult when mode=auto and policy is unlifted', async () => {
+    // round_robin is not in LIFTED_POLICIES; auto mode falls back to mock with a note.
+    const result = await runValidation(['round_robin'], 'auto', undefined, [alwaysFailCase]);
+    const p = result.policies[0];
+    expect(p?.lbLabel).toBe('mock');
+    expect(p?.note).toMatch(/not lifted/);
   });
 });

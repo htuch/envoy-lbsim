@@ -156,6 +156,18 @@ time, configured policy, brushed selection). Data is still computed by the
 swap. Inspecting Envoy E at time T will call `requestInspection` (deterministic
 replay; see Design decisions) once wired to the real worker.
 
+## Headless CLI (`@elbsim/cli`, bin `elbsim`) (DONE)
+
+A headless Node CLI drives the simulator without the frontend. `elbsim run`
+prints per-backend distribution, goodput, and latency for a scenario;
+`elbsim validate` runs a per-LB validation suite covering expected
+distribution, consistency, least-request, and cross-cutting
+goodput/conservation/determinism plus a queryWindow-vs-recompute
+stats-aggregation cross-check. Cases run on real Wasm where a policy is
+lifted (maglev) and the mock otherwise, each labeled REAL/MOCK; real-only
+checks SKIP on the mock and upgrade as Track A lands ring_hash and the EDF
+policies. It is an exploration tool, not a CI gate.
+
 ## Next step
 
 Track A's LB lift is done (all five policies, golden-tested, driving the real
