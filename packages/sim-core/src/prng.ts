@@ -42,4 +42,20 @@ export class Prng {
   fork(streamId: number): Prng {
     return new Prng((this.state ^ (BigInt(streamId) * GOLDEN)) & MASK64);
   }
+
+  /**
+   * Stateless 64-bit hash of a key (the SplitMix64 finalizer), spread across the
+   * full 64-bit range and returned as a double. Consistent-hash load balancers
+   * (ring_hash, maglev) expect a hash that spans the whole 64-bit ring/table
+   * space; a small raw key would collapse a ring lookup onto a single host. The
+   * kernel runs request keys through this before handing the hash to the LB. Same
+   * mixing as {@link nextU64}, so it is deterministic and portable to C++.
+   */
+  static hash64(key: number): number {
+    let z = (BigInt(key) * GOLDEN) & MASK64;
+    z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & MASK64;
+    z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & MASK64;
+    z = (z ^ (z >> 31n)) & MASK64;
+    return Number(z);
+  }
 }

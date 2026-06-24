@@ -408,7 +408,14 @@ export class SimEngine {
   private dispatchUpstream(req: Req, e: EnvoyState): void {
     const lb = this.lbs[req.envoy] as ReturnType<LbModule['createLb']>;
     lb.updateHosts(this.buildHostSet(req.envoy));
-    const backend = lb.chooseHost({ hashKey: req.key, region: e.region, zone: e.zone });
+    // Spread the small request key across the full 64-bit hash space before the
+    // LB sees it: consistent-hash policies (ring_hash) treat the value as a ring
+    // position, so a raw key would collapse all traffic onto one host.
+    const backend = lb.chooseHost({
+      hashKey: Prng.hash64(req.key),
+      region: e.region,
+      zone: e.zone,
+    });
     if (backend < 0) {
       this.reject(req, 'no_healthy_host', e);
       return;

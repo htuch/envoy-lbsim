@@ -44,4 +44,16 @@ describe('Prng', () => {
   it('accepts a bigint seed', () => {
     expect(new Prng(123n).nextFloat()).toBeGreaterThanOrEqual(0);
   });
+
+  it('hash64 is deterministic and spreads keys across the 64-bit range', () => {
+    expect(Prng.hash64(42)).toBe(Prng.hash64(42));
+    expect(Prng.hash64(1)).not.toBe(Prng.hash64(2));
+    // Distinct small keys must spread across the full range, not cluster low:
+    // a consistent-hash ring spans [0, 2^64), so the hashes must too.
+    const values = Array.from({ length: 256 }, (_, k) => Prng.hash64(k));
+    expect(new Set(values).size).toBe(values.length); // no collisions
+    const aboveMidpoint = values.filter((v) => v >= 2 ** 63).length;
+    expect(aboveMidpoint).toBeGreaterThan(64); // roughly half land in the top half
+    expect(aboveMidpoint).toBeLessThan(192);
+  });
 });

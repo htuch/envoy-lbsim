@@ -109,4 +109,22 @@ describe.skipIf(!HAS_ARTIFACT)('SimEngine driven by the real Wasm LbModule', () 
       expect(engine.inspect(0).structure.kind).toBe(structure);
     });
   });
+
+  // Regression: the kernel must feed a full 64-bit hash to consistent-hash
+  // policies. ring_hash treats the value as a ring position, so a raw small key
+  // would collapse all traffic onto one host. With Prng.hash64 spreading the
+  // key, distinct keys must reach more than one backend.
+  it('ring_hash spreads distinct keys across multiple backends', () => {
+    const config = makeConfig({
+      kind: 'ring_hash',
+      minimumRingSize: 1024,
+      maximumRingSize: 8_388_608,
+      hashFunction: 'xx_hash',
+      useHostnameForHashing: false,
+    });
+    const engine = new SimEngine(config, { lbModule });
+    engine.runToCompletion();
+    const backends = new Set(picks(engine.events).map((e) => e.backend));
+    expect(backends.size).toBeGreaterThan(1);
+  });
 });
