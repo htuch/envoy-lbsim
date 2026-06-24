@@ -12,8 +12,12 @@ export interface Series {
  * Extract one gauge column across every retained frame of a ring, as uPlot data.
  * One y series per entity of the ring's kind. Pure and synchronous: the timeline
  * render loop calls this off the shared buffer each frame the data changes.
+ *
+ * The optional `scale` factor multiplies every raw gauge value before returning
+ * it. Use this to convert per-interval counts to per-second rates by passing
+ * `1000 / sampleIntervalMs`. Defaults to 1 (no scaling).
  */
-export function buildSeries(ring: GaugeRingBuffer, gaugeIndex: number): Series {
+export function buildSeries(ring: GaugeRingBuffer, gaugeIndex: number, scale = 1): Series {
   const n = ring.size();
   const entityCount = ring.spec.entityCount;
   const fieldCount = ring.stride / entityCount;
@@ -25,7 +29,7 @@ export function buildSeries(ring: GaugeRingBuffer, gaugeIndex: number): Series {
     for (let e = 0; e < entityCount; e++) {
       // `ys[e]` is allocated for every e in range above; the assertion satisfies
       // noUncheckedIndexedAccess without a dead branch.
-      ys[e]![i] = frame.values[e * fieldCount + gaugeIndex] as number;
+      ys[e]![i] = (frame.values[e * fieldCount + gaugeIndex] as number) * scale;
     }
   }
   return { x, ys };

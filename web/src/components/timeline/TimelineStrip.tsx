@@ -15,6 +15,7 @@ export function TimelineStrip({
   gauge,
   label,
   unit,
+  scale = 1,
   height = 96,
 }: {
   kind: EntityKind;
@@ -22,6 +23,12 @@ export function TimelineStrip({
   label: string;
   /** Measurement unit for the strip, rendered subtly beside the title. */
   unit: string;
+  /**
+   * Scale factor applied to raw gauge values before plotting. Use
+   * `1000 / sampleIntervalMs` to convert per-interval counts to req/s.
+   * Defaults to 1 (no scaling).
+   */
+  scale?: number;
   height?: number;
 }): React.JSX.Element {
   const entityCount = useSimStore((s) => s.rings.get(kind)?.spec.entityCount ?? 0);
@@ -56,7 +63,7 @@ export function TimelineStrip({
         </ul>
       </header>
       <div className="px-1 py-1">
-        <Timeline kind={kind} gauge={gauge} height={height} />
+        <Timeline kind={kind} gauge={gauge} scale={scale} height={height} />
       </div>
     </section>
   );

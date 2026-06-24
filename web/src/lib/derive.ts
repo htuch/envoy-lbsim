@@ -1,27 +1,27 @@
 import { type EntityKind, type GaugeRingBuffer, gaugeIndex } from '@elbsim/protocol';
 
 /**
- * Fleet-level goodput time series: the fraction of all initiated requests
- * that completed successfully, EWMA-smoothed across frames.
+ * Fleet-level goodput time series: the rate of successfully completed
+ * requests per second, EWMA-smoothed across frames.
  */
 export interface GoodputSeries {
   /** Frame timestamps in seconds (aligned to the client ring's frames). */
   x: number[];
-  /** Smoothed goodput in [0,1] per frame. */
+  /** Smoothed goodput in req/s per frame. */
   y: number[];
 }
 
 /**
- * Per-stage loss time series: fleet sums of each loss kind per frame.
+ * Per-stage loss time series: fleet rates of each loss kind in req/s per frame.
  */
 export interface LossSeries {
   /** Frame timestamps in seconds (aligned to the client ring's frames). */
   x: number[];
-  /** Fleet sum of client `timedOut` per frame. */
+  /** Fleet timeout rate in req/s per frame. */
   timeouts: number[];
-  /** Fleet sum of envoy `rejectRate` per frame. */
+  /** Fleet envoy reject rate in req/s per frame. */
   envoyRejects: number[];
-  /** Fleet sum of backend `shed` per frame. */
+  /** Fleet backend shed rate in req/s per frame. */
   backendShed: number[];
 }
 
@@ -46,17 +46,22 @@ const BACKEND_SHED_IDX = gaugeIndex('backend', 'shed');
 /**
  * Compute fleet-level goodput from the three ring buffers, EWMA-smoothed.
  *
- * Per frame i, raw goodput = completedSum / (completedSum + timedOutSum +
- * envoyRejectSum + backendShedSum). The result is then smoothed with an
- * exponential moving average (alpha defaults to 0.3) and clamped to [0,1].
+ * Per frame i, raw goodput rate = completedSum * (1000 / sampleIntervalMs).
+ * The result is then smoothed with an exponential moving average (alpha
+ * defaults to 0.3). The smoothed value is non-negative (guardrail against
+ * floating-point edge cases).
  *
  * Divide-by-zero (no traffic in a frame) carries the previous smoothed value,
- * or 1 when it is the first frame.
+ * or 0 when it is the first frame.
  *
  * The frame count is the shortest of the three rings (they advance together but
  * not atomically under the real worker); the client ring supplies timestamps.
  */
-export function goodputSeries(rings: Map<EntityKind, GaugeRingBuffer>, alpha = 0.3): GoodputSeries {
+export function goodputSeries(
+  rings: Map<EntityKind, GaugeRingBuffer>,
+  alpha = 0.3,
+  sampleIntervalMs = 1000,
+): GoodputSeries {
   const clientRing = rings.get('client');
   const envoyRing = rings.get('envoy');
   const backendRing = rings.get('backend');
@@ -73,49 +78,29 @@ export function goodputSeries(rings: Map<EntityKind, GaugeRingBuffer>, alpha = 0
   const y = new Array<number>(n);
 
   const clientFieldCount = clientRing.stride / clientRing.spec.entityCount;
-  const envoyFieldCount = envoyRing.stride / envoyRing.spec.entityCount;
-  const backendFieldCount = backendRing.stride / backendRing.spec.entityCount;
-
   const clientCount = clientRing.spec.entityCount;
-  const envoyCount = envoyRing.spec.entityCount;
-  const backendCount = backendRing.spec.entityCount;
 
-  let smoothed = 1;
+  const toPerSecond = 1000 / sampleIntervalMs;
+  let smoothed = 0;
 
   for (let i = 0; i < n; i++) {
     const clientFrame = clientRing.frameAt(i);
-    const envoyFrame = envoyRing.frameAt(i);
-    const backendFrame = backendRing.frameAt(i);
 
     x[i] = clientFrame.t / 1000;
 
     let completedSum = 0;
-    let timedOutSum = 0;
     for (let e = 0; e < clientCount; e++) {
       completedSum += clientFrame.values[e * clientFieldCount + CLIENT_COMPLETED_IDX] as number;
-      timedOutSum += clientFrame.values[e * clientFieldCount + CLIENT_TIMED_OUT_IDX] as number;
     }
 
-    let rejectSum = 0;
-    for (let e = 0; e < envoyCount; e++) {
-      rejectSum += envoyFrame.values[e * envoyFieldCount + ENVOY_REJECT_RATE_IDX] as number;
-    }
-
-    let shedSum = 0;
-    for (let e = 0; e < backendCount; e++) {
-      shedSum += backendFrame.values[e * backendFieldCount + BACKEND_SHED_IDX] as number;
-    }
-
-    const total = completedSum + timedOutSum + rejectSum + shedSum;
-    if (total === 0) {
-      // No traffic this frame: carry the previous smoothed value (or 1 for the
-      // first frame; smoothed is initialised to 1 above).
+    if (completedSum === 0 && i > 0) {
+      // No completions this frame: carry the previous smoothed value.
       y[i] = smoothed;
     } else {
-      const raw = completedSum / total;
+      const raw = completedSum * toPerSecond;
       smoothed = alpha * raw + (1 - alpha) * smoothed;
-      // Clamp to [0,1] as a guardrail against floating-point edge cases.
-      smoothed = Math.max(0, Math.min(1, smoothed));
+      // Non-negative guardrail against floating-point edge cases.
+      smoothed = Math.max(0, smoothed);
       y[i] = smoothed;
     }
   }
@@ -124,13 +109,17 @@ export function goodputSeries(rings: Map<EntityKind, GaugeRingBuffer>, alpha = 0
 }
 
 /**
- * Compute per-stage fleet loss sums per frame.
+ * Compute per-stage fleet loss rates per frame, in req/s.
  *
  * Returns three parallel arrays (timeouts, envoyRejects, backendShed) aligned
- * to the client ring's frame timestamps. The client ring supplies x and
- * frame count.
+ * to the client ring's frame timestamps. Each value is the per-interval fleet
+ * sum scaled to per-second by multiplying by (1000 / sampleIntervalMs). The
+ * client ring supplies x and frame count.
  */
-export function lossSeries(rings: Map<EntityKind, GaugeRingBuffer>): LossSeries {
+export function lossSeries(
+  rings: Map<EntityKind, GaugeRingBuffer>,
+  sampleIntervalMs = 1000,
+): LossSeries {
   const clientRing = rings.get('client');
   const envoyRing = rings.get('envoy');
   const backendRing = rings.get('backend');
@@ -154,6 +143,8 @@ export function lossSeries(rings: Map<EntityKind, GaugeRingBuffer>): LossSeries 
   const envoyCount = envoyRing.spec.entityCount;
   const backendCount = backendRing.spec.entityCount;
 
+  const toPerSecond = 1000 / sampleIntervalMs;
+
   for (let i = 0; i < n; i++) {
     const clientFrame = clientRing.frameAt(i);
     const envoyFrame = envoyRing.frameAt(i);
@@ -165,19 +156,19 @@ export function lossSeries(rings: Map<EntityKind, GaugeRingBuffer>): LossSeries 
     for (let e = 0; e < clientCount; e++) {
       timedOutSum += clientFrame.values[e * clientFieldCount + CLIENT_TIMED_OUT_IDX] as number;
     }
-    timeouts[i] = timedOutSum;
+    timeouts[i] = timedOutSum * toPerSecond;
 
     let rejectSum = 0;
     for (let e = 0; e < envoyCount; e++) {
       rejectSum += envoyFrame.values[e * envoyFieldCount + ENVOY_REJECT_RATE_IDX] as number;
     }
-    envoyRejects[i] = rejectSum;
+    envoyRejects[i] = rejectSum * toPerSecond;
 
     let shedSum = 0;
     for (let e = 0; e < backendCount; e++) {
       shedSum += backendFrame.values[e * backendFieldCount + BACKEND_SHED_IDX] as number;
     }
-    backendShed[i] = shedSum;
+    backendShed[i] = shedSum * toPerSecond;
   }
 
   return { x, timeouts, envoyRejects, backendShed };

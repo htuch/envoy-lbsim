@@ -31,15 +31,34 @@ import { useSimStore } from '@/store/sim-store';
  */
 
 // Per-entity gauge strips, fanned out one line per entity, grouped by tier.
+// `rateScale: true` marks strips whose raw per-interval count must be
+// converted to req/s by multiplying by `1000 / sampleIntervalMs` at render
+// time (emitRate is sampled once per sim tick, so it is a per-interval count).
 const GAUGE_STRIPS = [
-  { kind: 'envoy', gauge: 'inFlight', label: 'Envoy · in-flight', unit: 'reqs' },
-  { kind: 'envoy', gauge: 'queueDepth', label: 'Envoy · queue depth', unit: 'reqs' },
-  { kind: 'backend', gauge: 'utilization', label: 'Backend · utilization', unit: 'load 0-1' },
-  { kind: 'backend', gauge: 'inFlight', label: 'Backend · in-flight', unit: 'reqs' },
-  { kind: 'backend', gauge: 'latencyP99', label: 'Backend · latency p99', unit: 'ms' },
-  { kind: 'client', gauge: 'emitRate', label: 'Client · emit rate', unit: 'reqs/interval' },
-  { kind: 'client', gauge: 'inFlight', label: 'Client · in-flight', unit: 'reqs' },
-] as const;
+  { kind: 'envoy' as const, gauge: 'inFlight', label: 'Envoy · in-flight', unit: 'reqs' },
+  { kind: 'envoy' as const, gauge: 'queueDepth', label: 'Envoy · queue depth', unit: 'reqs' },
+  {
+    kind: 'backend' as const,
+    gauge: 'utilization',
+    label: 'Backend · utilization',
+    unit: 'load 0-1',
+  },
+  { kind: 'backend' as const, gauge: 'inFlight', label: 'Backend · in-flight', unit: 'reqs' },
+  {
+    kind: 'backend' as const,
+    gauge: 'latencyP99',
+    label: 'Backend · latency p99',
+    unit: 'ms',
+  },
+  {
+    kind: 'client' as const,
+    gauge: 'emitRate',
+    label: 'Client · emit rate',
+    unit: 'req/s',
+    rateScale: true as const,
+  },
+  { kind: 'client' as const, gauge: 'inFlight', label: 'Client · in-flight', unit: 'reqs' },
+];
 
 // Pre-resolve the selected-envoy latency gauge columns (stable indices).
 const ENVOY_P50 = gaugeIndex('envoy', 'latencyP50');
@@ -75,6 +94,7 @@ export function App(): React.JSX.Element {
   const config = useSimStore((s) => s.config);
   const rings = useSimStore((s) => s.rings);
   const ready = useSimStore((s) => s.ready);
+  const sampleIntervalMs = useSimStore((s) => s.config.time.sampleIntervalMs);
   const selectedEnvoy = useSimStore((s) => s.selectedEnvoy);
   const setSelectedEnvoy = useSimStore((s) => s.setSelectedEnvoy);
 
@@ -109,11 +129,11 @@ export function App(): React.JSX.Element {
     return { x: p50.x, ys: [p50.y, p90.y, p99.y] };
   };
   const buildGoodput = (): Series => {
-    const g = goodputSeries(rings);
+    const g = goodputSeries(rings, 0.3, sampleIntervalMs);
     return { x: g.x, ys: [g.y] };
   };
   const buildLosses = (): Series => {
-    const l = lossSeries(rings);
+    const l = lossSeries(rings, sampleIntervalMs);
     return { x: l.x, ys: [l.timeouts, l.envoyRejects, l.backendShed] };
   };
 
@@ -171,6 +191,7 @@ export function App(): React.JSX.Element {
                 gauge={s.gauge}
                 label={s.label}
                 unit={s.unit}
+                scale={'rateScale' in s ? 1000 / sampleIntervalMs : 1}
               />
             ))}
             <DerivedStrip
@@ -193,6 +214,7 @@ export function App(): React.JSX.Element {
                 gauge={s.gauge}
                 label={s.label}
                 unit={s.unit}
+                scale={'rateScale' in s ? 1000 / sampleIntervalMs : 1}
               />
             ))}
 
@@ -204,19 +226,20 @@ export function App(): React.JSX.Element {
                 gauge={s.gauge}
                 label={s.label}
                 unit={s.unit}
+                scale={'rateScale' in s ? 1000 / sampleIntervalMs : 1}
               />
             ))}
 
             {/* Fleet tier: derived goodput and per-stage losses. */}
             <DerivedStrip
               label="Fleet · goodput"
-              unit="ratio 0-1"
+              unit="req/s"
               lines={GOODPUT_LINES}
               build={buildGoodput}
             />
             <DerivedStrip
               label="Fleet · losses by stage"
-              unit="reqs/interval"
+              unit="req/s"
               lines={LOSSES_LINES}
               build={buildLosses}
             />

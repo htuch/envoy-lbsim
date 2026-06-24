@@ -24,10 +24,16 @@ import { useSimStore } from '@/store/sim-store';
 export function Timeline({
   kind,
   gauge,
+  scale = 1,
   height = 96,
 }: {
   kind: EntityKind;
   gauge: string;
+  /**
+   * Scale factor applied to raw gauge values. Use `1000 / sampleIntervalMs`
+   * to convert per-interval counts to req/s. Defaults to 1 (no scaling).
+   */
+  scale?: number;
   height?: number;
 }): React.JSX.Element {
   const ring = useSimStore((s) => s.rings.get(kind));
@@ -103,7 +109,7 @@ export function Timeline({
       const t = latest ? latest.t : -1;
       // Redraw only when the buffer advanced or was rewound (seek backfill).
       if (size !== lastSize || t !== lastT) {
-        const s = buildSeries(ring, col);
+        const s = buildSeries(ring, col, scale);
         plot.setData([s.x, ...s.ys]);
         lastSize = size;
         lastT = t;
@@ -123,7 +129,7 @@ export function Timeline({
       unsubscribe();
       plot.destroy();
     };
-  }, [ring, kind, gauge, height]);
+  }, [ring, kind, gauge, scale, height]);
 
   return <div ref={hostRef} className="w-full" style={{ height }} />;
 }

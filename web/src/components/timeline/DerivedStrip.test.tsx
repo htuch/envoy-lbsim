@@ -38,9 +38,9 @@ describe('DerivedStrip', () => {
   });
 
   it('shows the label, a named legend swatch, and the unit', () => {
-    render(<DerivedStrip label="Fleet · goodput" unit="ratio 0-1" lines={LINES} build={build} />);
+    render(<DerivedStrip label="Fleet · goodput" unit="req/s" lines={LINES} build={build} />);
     expect(screen.getByText('Fleet · goodput')).toBeInTheDocument();
     expect(screen.getByText('p99')).toBeInTheDocument();
-    expect(screen.getByText('ratio 0-1')).toBeInTheDocument();
+    expect(screen.getByText('req/s')).toBeInTheDocument();
   });
 });

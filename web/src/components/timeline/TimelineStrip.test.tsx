@@ -60,16 +60,19 @@ describe('TimelineStrip', () => {
   it('caps the legend and shows an overflow count for dense fleets', async () => {
     await loadStore();
     render(
-      <TimelineStrip
-        kind="client"
-        gauge="emitRate"
-        label="Client · emit rate"
-        unit="reqs/interval"
-      />,
+      <TimelineStrip kind="client" gauge="emitRate" label="Client · emit rate" unit="req/s" />,
     );
     // 50 clients, legend capped at 8 → "+42".
     expect(screen.getByText('#7')).toBeInTheDocument();
     expect(screen.queryByText('#8')).not.toBeInTheDocument();
     expect(screen.getByText('+42')).toBeInTheDocument();
+  });
+
+  it('renders the strip unit as req/s for emitRate', async () => {
+    await loadStore();
+    render(
+      <TimelineStrip kind="client" gauge="emitRate" label="Client · emit rate" unit="req/s" />,
+    );
+    expect(screen.getByText('req/s')).toBeInTheDocument();
   });
 });

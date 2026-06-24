@@ -35,4 +35,33 @@ describe('buildSeries', () => {
       [20, 21],
     ]);
   });
+
+  it('scale factor multiplies all y values', () => {
+    const ring = GaugeRingBuffer.alloc(spec);
+    const stride = ring.stride;
+    const fields = stride / spec.entityCount;
+    const f1 = new Float32Array(stride);
+    f1[0] = 5;
+    f1[fields] = 10;
+    ring.push(1000, f1);
+
+    const s = buildSeries(ring, 0, 2);
+    expect(s.x).toEqual([1]);
+    expect(s.ys).toEqual([[10], [20]]);
+  });
+
+  it('scale=1 (default) leaves values unchanged', () => {
+    const ring = GaugeRingBuffer.alloc(spec);
+    const stride = ring.stride;
+    const fields = stride / spec.entityCount;
+    const f1 = new Float32Array(stride);
+    f1[0] = 7;
+    f1[fields] = 3;
+    ring.push(1000, f1);
+
+    const sDefault = buildSeries(ring, 0);
+    const sExplicit = buildSeries(ring, 0, 1);
+    expect(sDefault.ys).toEqual(sExplicit.ys);
+    expect(sDefault.ys).toEqual([[7], [3]]);
+  });
 });
