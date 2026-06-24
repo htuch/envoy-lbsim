@@ -29,3 +29,6 @@ pnpm-debug.log*
 .idea/
 .DS_Store
 *.sw?
+
+# Brainstorming visual-companion scratch (superpowers)
+.superpowers/
