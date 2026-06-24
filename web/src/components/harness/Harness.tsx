@@ -1,6 +1,7 @@
-import type { SimConfig } from '@elbsim/config';
+import type { EnvoyLbPolicyKind, SimConfig } from '@elbsim/config';
 import { useMemo, useState } from 'react';
 import { WindowAnalysis } from '@/components/analysis/WindowAnalysis';
+import { LbInspector } from '@/components/inspector/LbInspector';
 import { TopologyGraph } from '@/components/topology/TopologyGraph';
 import { Segmented } from '@/components/ui/segmented';
 import { makeInspection, makeLatencyWindow, makeTopologySnapshot } from '@/synthetic';
@@ -21,6 +22,18 @@ const VIEWS = [
   { value: 'inspector', label: 'Inspector' },
 ] as const;
 
+/**
+ * Structure preview options: one policy per `LbStructure` kind, so the inspector
+ * can render all four against a single scenario. A real deployment fixes the
+ * policy in config; this selector is a harness affordance only.
+ */
+const PREVIEW_POLICIES = [
+  { value: 'round_robin', label: 'EDF' },
+  { value: 'maglev', label: 'Maglev' },
+  { value: 'ring_hash', label: 'Ring' },
+  { value: 'random', label: 'Random' },
+] as const satisfies ReadonlyArray<{ value: EnvoyLbPolicyKind; label: string }>;
+
 /** A fixed virtual instant the synthetic snapshots are taken at. */
 const HARNESS_T = 1200;
 /** A committed brushed window for the cold-path views. */
@@ -29,6 +42,7 @@ const HARNESS_WINDOW = { fromMs: 0, toMs: 5000 } as const;
 export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
   const [view, setView] = useState<ViewId>('topology');
   const [selectedEnvoy, setSelectedEnvoy] = useState(0);
+  const [previewPolicy, setPreviewPolicy] = useState<EnvoyLbPolicyKind>('maglev');
 
   const snapshot = useMemo(() => makeTopologySnapshot(config, HARNESS_T), [config]);
   const window = useMemo(
@@ -36,15 +50,23 @@ export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
     [config],
   );
   const inspection = useMemo(
-    () => makeInspection(config, selectedEnvoy, HARNESS_T),
-    [config, selectedEnvoy],
+    () => makeInspection(config, selectedEnvoy, HARNESS_T, previewPolicy),
+    [config, selectedEnvoy, previewPolicy],
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-2">
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-2">
         <Segmented ariaLabel="View" options={VIEWS} value={view} onChange={setView} />
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+        {view === 'inspector' && (
+          <Segmented
+            ariaLabel="Structure preview"
+            options={PREVIEW_POLICIES}
+            value={previewPolicy}
+            onChange={setPreviewPolicy}
+          />
+        )}
+        <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
           t = {HARNESS_T} ms
         </span>
       </div>
@@ -57,24 +79,7 @@ export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
           />
         )}
         {view === 'analysis' && <WindowAnalysis window={window} />}
-        {view === 'inspector' && (
-          <Placeholder
-            name="LB inspector"
-            detail={`${inspection.structure.kind} · envoy e${selectedEnvoy}`}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Temporary panel placeholder; replaced by the real view in its own commit. */
-function Placeholder({ name, detail }: { name: string; detail: string }): React.JSX.Element {
-  return (
-    <div className="grid h-full place-items-center">
-      <div className="text-center">
-        <p className="text-sm font-medium text-foreground">{name}</p>
-        <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{detail}</p>
+        {view === 'inspector' && <LbInspector inspection={inspection} />}
       </div>
     </div>
   );

@@ -102,7 +102,8 @@ export function fillMaglevTable(
     }
     const backend = backends[best]!;
     table[s] = backend;
-    slotCounts[backend] = (slotCounts[backend] ?? 0) + 1;
+    // Every backend's count is pre-initialized to 0 above, so it is defined.
+    slotCounts[backend] = slotCounts[backend]! + 1;
     deadlines[best] = deadlines[best]! + strides[best]!;
   }
   return { table, slotCounts };

@@ -32,7 +32,8 @@ export interface StatusBadge {
  */
 export function statusBadge(status: TopologyNodeStatus): StatusBadge {
   if (status.kind === 'backend') {
-    return BACKEND_HEALTH[status.health] ?? BACKEND_HEALTH[0];
+    // health is the 0..3 ordinal, always a valid index into BACKEND_HEALTH.
+    return BACKEND_HEALTH[status.health]!;
   }
   if (status.kind === 'envoy' && status.panic) {
     return { label: 'panic', color: 'hsl(0 75% 52%)' };
