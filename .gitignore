@@ -32,3 +32,5 @@ pnpm-debug.log*
 
 # Brainstorming visual-companion scratch (superpowers)
 .superpowers/
+
+.claude/
