@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Wasm build artifacts (generated; the .wasm/.js/.d.ts are emitted by emcmake)
+packages/wasm-lb/build/
+packages/wasm-lb/dist/
+
+# Test / coverage
+coverage/
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.sw?

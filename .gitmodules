@@ -1,0 +1,6 @@
+[submodule "third_party/envoy"]
+	path = third_party/envoy
+	url = https://github.com/envoyproxy/envoy.git
+[submodule "third_party/abseil-cpp"]
+	path = third_party/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git

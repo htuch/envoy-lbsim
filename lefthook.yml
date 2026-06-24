@@ -1,0 +1,24 @@
+# Single hook manager for the whole repo (one .git, so one set of hooks). Drives
+# the TypeScript toolchain; the C++/Wasm build is heavy and needs an activated
+# emsdk, so it runs in CI (see .github/workflows/ci.yml), not in hooks.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,css}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    - name: gitleaks
+      run: >
+        command -v gitleaks >/dev/null 2>&1 &&
+        gitleaks protect --staged --redact --no-banner ||
+        echo "gitleaks not installed; skipping (CI enforces secret scanning)"
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: pnpm run typecheck
+    - name: test
+      run: pnpm run test

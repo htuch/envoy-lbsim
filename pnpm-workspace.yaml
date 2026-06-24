@@ -1,0 +1,10 @@
+packages:
+  - web
+  - packages/*
+
+# pnpm blocks dependency build scripts by default; lefthook's postinstall must
+# run for the git hooks to install. Approve the builds we trust.
+allowBuilds:
+  lefthook: true
+  "@biomejs/biome": true
+  esbuild: true

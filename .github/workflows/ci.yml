@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  web:
+    name: TypeScript (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # no submodules: the TS workspace does not need Envoy
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint & format check
+        run: pnpm exec biome ci .
+      - name: Type check
+        run: pnpm run typecheck
+      - name: Tests + coverage
+        run: pnpm -r run test:cov
+
+  wasm:
+    name: Wasm LB (build + golden smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/envoy + abseil for the real LB build
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.16
+      - name: Build the Wasm LB module
+        run: make -C packages/wasm-lb build
+      - name: Golden smoke (real Envoy EDF -> Wasm)
+        run: node packages/wasm-lb/test/smoke.mjs
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

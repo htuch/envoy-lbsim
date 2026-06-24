@@ -1,0 +1,27 @@
+{
+  "name": "envoy-lb-sim",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
+    "test": "pnpm -r run test",
+    "test:cov": "pnpm -r run test:cov",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "ci": "biome ci .",
+    "wasm:build": "pnpm --filter @elbsim/wasm-lb run build",
+    "wasm:test": "pnpm --filter @elbsim/wasm-lb run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "lefthook": "^2.1.9",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

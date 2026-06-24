@@ -1,0 +1,23 @@
+{
+  "name": "@elbsim/wasm-lb",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./bindings/index.ts"
+  },
+  "scripts": {
+    "build": "bash scripts/with-emsdk.sh make build",
+    "clean": "make clean",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node test/smoke.mjs",
+    "test:wasm": "pnpm run build && node test/smoke.mjs"
+  },
+  "dependencies": {
+    "@elbsim/config": "workspace:*",
+    "@elbsim/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2"
+  }
+}
