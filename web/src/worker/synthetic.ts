@@ -54,6 +54,15 @@ function entityCount(config: SimConfig, kind: EntityKind): number {
  * constants otherwise. Synthetic, not a model: enough to look honest on screen.
  */
 function gaugeRange(config: SimConfig, kind: EntityKind, gauge: string): Range {
+  // Latency percentile columns (appended to the envoy and backend schemas) are
+  // virtual ms; scale them off the configured request timeout so P50<P90<P99
+  // read plausibly under the deadline.
+  if (gauge === 'latencyP50' || gauge === 'latencyP90' || gauge === 'latencyP99') {
+    const timeout = config.timeouts.requestTimeoutMs;
+    const hi =
+      gauge === 'latencyP50' ? timeout * 0.25 : gauge === 'latencyP90' ? timeout * 0.6 : timeout;
+    return { lo: 0, hi, integer: false };
+  }
   if (kind === 'client') {
     const rate = config.clients.arrival.ratePerSec;
     switch (gauge) {
