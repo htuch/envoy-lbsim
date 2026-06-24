@@ -237,6 +237,29 @@ describe('goodputSeries', () => {
     expect(s.y[0]).toBeLessThanOrEqual(1);
     expect(s.y[0]).toBeGreaterThanOrEqual(0);
   });
+
+  it('bounds the frame count by the shortest ring when channels are out of sync', () => {
+    // The real worker pushes the three channels within one tick but not
+    // atomically, so a reader can observe the client ring one frame ahead of
+    // the envoy/backend rings. The series must read only shared frames and not
+    // call frameAt past the shorter rings.
+    const rings = makeRings(1, 1, 1, 8);
+    const cr = rings.get('client')!;
+    const er = rings.get('envoy')!;
+    const br = rings.get('backend')!;
+    cr.push(1000, clientFrame(1, { completed: 8, timedOut: 2 }));
+    er.push(1000, envoyFrame(1, {}));
+    br.push(1000, backendFrame(1, {}));
+    // Client advances a frame before the other two channels catch up.
+    cr.push(2000, clientFrame(1, { completed: 9, timedOut: 1 }));
+    expect(() => goodputSeries(rings)).not.toThrow();
+    expect(() => lossSeries(rings)).not.toThrow();
+    expect(goodputSeries(rings).y).toHaveLength(1);
+    const loss = lossSeries(rings);
+    expect(loss.timeouts).toHaveLength(1);
+    expect(loss.envoyRejects).toHaveLength(1);
+    expect(loss.backendShed).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

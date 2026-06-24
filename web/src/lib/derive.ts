@@ -53,8 +53,8 @@ const BACKEND_SHED_IDX = gaugeIndex('backend', 'shed');
  * Divide-by-zero (no traffic in a frame) carries the previous smoothed value,
  * or 1 when it is the first frame.
  *
- * All three rings must have the same number of frames. The client ring
- * supplies timestamps and frame count.
+ * The frame count is the shortest of the three rings (they advance together but
+ * not atomically under the real worker); the client ring supplies timestamps.
  */
 export function goodputSeries(rings: Map<EntityKind, GaugeRingBuffer>, alpha = 0.3): GoodputSeries {
   const clientRing = rings.get('client');
@@ -64,7 +64,11 @@ export function goodputSeries(rings: Map<EntityKind, GaugeRingBuffer>, alpha = 0
     return { x: [], y: [] };
   }
 
-  const n = clientRing.size();
+  // Bound by the shortest ring. The worker writes the three channels within one
+  // virtual tick but not atomically, so a reader can observe them transiently
+  // out of sync (e.g. the client frame already pushed, the backend frame not
+  // yet). Reading only the frames all three share keeps frameAt in range.
+  const n = Math.min(clientRing.size(), envoyRing.size(), backendRing.size());
   const x = new Array<number>(n);
   const y = new Array<number>(n);
 
@@ -134,7 +138,9 @@ export function lossSeries(rings: Map<EntityKind, GaugeRingBuffer>): LossSeries 
     return { x: [], timeouts: [], envoyRejects: [], backendShed: [] };
   }
 
-  const n = clientRing.size();
+  // Bound by the shortest ring; see goodputSeries for why the three channels can
+  // be transiently out of sync under the real worker.
+  const n = Math.min(clientRing.size(), envoyRing.size(), backendRing.size());
   const x = new Array<number>(n);
   const timeouts = new Array<number>(n);
   const envoyRejects = new Array<number>(n);
