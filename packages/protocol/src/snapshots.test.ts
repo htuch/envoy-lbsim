@@ -25,6 +25,19 @@ describe('gauge columns', () => {
   it('throws on an unknown gauge', () => {
     expect(() => gaugeIndex('backend', 'nope')).toThrow(/unknown backend gauge/);
   });
+
+  it('exposes appended latency percentile columns on envoy and backend', () => {
+    for (const kind of ['envoy', 'backend'] as const) {
+      const fields = gaugeFields(kind);
+      // Latency columns are appended (after the original columns) so the schema
+      // stays backwards compatible.
+      expect(fields).toContain('latencyP50');
+      expect(fields).toContain('latencyP90');
+      expect(fields).toContain('latencyP99');
+      expect(fields.indexOf('latencyP50')).toBeGreaterThan(fields.indexOf('inFlight'));
+    }
+    expect(gaugeFields('client')).not.toContain('latencyP50');
+  });
 });
 
 describe('ring sizing', () => {

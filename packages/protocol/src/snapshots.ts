@@ -25,6 +25,11 @@ export const ENVOY_GAUGES = [
   'rejectRate', // shed requests per sample interval
   'healthyHosts', // backends currently considered healthy
   'panic', // 1 if the priority set is in panic, else 0
+  // Appended latency columns (hot-path histogram, see sim-core histogram.ts):
+  // upstream round-trip latency this Envoy observed, in ms.
+  'latencyP50',
+  'latencyP90',
+  'latencyP99',
 ] as const;
 
 export const BACKEND_GAUGES = [
@@ -34,6 +39,10 @@ export const BACKEND_GAUGES = [
   'completed', // completions in this sample interval
   'shed', // overflow drops in this sample interval
   'health', // BackendHealth as ordinal (0 healthy .. 3 draining)
+  // Appended latency columns (hot-path histogram): backend service time, in ms.
+  'latencyP50',
+  'latencyP90',
+  'latencyP99',
 ] as const;
 
 export type GaugeName = (
