@@ -175,6 +175,17 @@ export class GaugeRingBuffer {
     };
   }
 
+  /**
+   * Empty the ring (head and count back to 0) so it can be refilled from
+   * scratch. Used when a backwards seek re-simulates into the same shared
+   * buffers; the stale data past the new write head is never read because
+   * {@link size} bounds all reads.
+   */
+  reset(): void {
+    this.control[HEAD] = 0;
+    this.control[COUNT] = 0;
+  }
+
   /** The most recently pushed frame, or undefined if empty. */
   latest(): { t: number; values: Float32Array } | undefined {
     const count = this.size();

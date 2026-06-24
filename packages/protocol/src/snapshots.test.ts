@@ -72,6 +72,19 @@ describe('GaugeRingBuffer', () => {
     expect(Array.from(rb.frameAt(1).values)).toEqual(Array.from(frame(2)));
   });
 
+  it('reset() empties the ring so it can be refilled from scratch', () => {
+    const rb = GaugeRingBuffer.alloc(spec);
+    rb.push(10, new Float32Array(frameStride(spec)).fill(1));
+    rb.push(20, new Float32Array(frameStride(spec)).fill(2));
+    rb.reset();
+    expect(rb.size()).toBe(0);
+    expect(rb.latest()).toBeUndefined();
+    // Refilling starts a fresh chronology.
+    rb.push(99, new Float32Array(frameStride(spec)).fill(3));
+    expect(rb.size()).toBe(1);
+    expect(rb.frameAt(0).t).toBe(99);
+  });
+
   it('wraps when capacity is exceeded, keeping the newest frames', () => {
     const rb = GaugeRingBuffer.alloc(spec);
     for (let i = 1; i <= 6; i++) rb.push(i * 10, frame(i));

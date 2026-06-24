@@ -18,6 +18,7 @@ import {
   type LbModule,
   type RequestEvent,
   type RequestId,
+  type RingBufferSpec,
   type WasmHost,
   type WasmHostSet,
 } from '@elbsim/protocol';
@@ -129,6 +130,23 @@ interface BackendState {
 export interface SimEngineOptions {
   /** LB module to host behind the Wasm ABI; defaults to the TS mock. */
   lbModule?: LbModule;
+  /**
+   * Ring buffers to write gauge frames into, keyed by entity kind. When the
+   * worker controller wants the frames in SharedArrayBuffer-backed memory it
+   * pre-allocates them (see {@link ringSpecs}) and injects them here; otherwise
+   * the engine allocates plain in-memory buffers.
+   */
+  channels?: Record<EntityKind, GaugeRingBuffer>;
+}
+
+/** The ring-buffer spec per entity kind for a config (full-run capacity). */
+export function ringSpecs(config: SimConfig): Record<EntityKind, RingBufferSpec> {
+  const capacity = Math.floor(config.time.durationMs / config.time.sampleIntervalMs) + 1;
+  return {
+    client: { kind: 'client', entityCount: config.clients.count, capacity },
+    envoy: { kind: 'envoy', entityCount: config.envoys.count, capacity },
+    backend: { kind: 'backend', entityCount: config.backends.count, capacity },
+  };
 }
 
 export class SimEngine {
@@ -157,10 +175,11 @@ export class SimEngine {
     this.netRng = master.fork(6);
     this.drawKey = createKeySampler(config.clients.requestKey);
 
-    this.channels = {
-      client: this.allocChannel('client', config.clients.count),
-      envoy: this.allocChannel('envoy', config.envoys.count),
-      backend: this.allocChannel('backend', config.backends.count),
+    const specs = ringSpecs(config);
+    this.channels = opts.channels ?? {
+      client: GaugeRingBuffer.alloc(specs.client),
+      envoy: GaugeRingBuffer.alloc(specs.envoy),
+      backend: GaugeRingBuffer.alloc(specs.backend),
     };
 
     this.initClients(master);
@@ -216,13 +235,6 @@ export class SimEngine {
   }
 
   // --- setup -------------------------------------------------------------
-
-  private allocChannel(kind: EntityKind, entityCount: number): GaugeRingBuffer {
-    // Retain the whole run so a paused timeline shows full history.
-    const capacity =
-      Math.floor(this.config.time.durationMs / this.config.time.sampleIntervalMs) + 1;
-    return GaugeRingBuffer.alloc({ kind, entityCount, capacity });
-  }
 
   private initClients(master: Prng): void {
     const arrivalBase = master.fork(1);
