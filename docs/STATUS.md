@@ -108,15 +108,17 @@ Mocks until done: synthetic `LbInspection` and window aggregates.
 
 ## Next step
 
-Pick up Track C (frontend hot path) or Track A (real Wasm LB); both can now run
-against a real `SimController` instead of synthetic streams.
-- Track C: wire `web/` to a Web Worker that `Comlink.expose`s a `SimController`,
-  read the returned `SharedTelemetry` ring buffers in the uPlot render loop, and
-  bind the playback transport to play/pause/step/seek/setSpeed. `sim-core`
-  already produces real frames and the cold-path `queryWindow`/inspection.
+With Tracks B and C done, pick up Track A (real Wasm LB) or Track D (topology,
+cold path, inspector); both can run against the real `SimController`.
 - Track A: replace `mockLbModule` with the real Wasm `LbModule`; the engine
   already feeds `WasmHostSet` (live per-host `activeRequests`, health, locality)
   and calls `updateHosts`/`chooseHost`/`inspect` per the ABI.
+- Track D: build the topology graph, the Observable Plot cold-path charts over a
+  committed brushed window (Track C already commits `{fromMs,toMs}` to the store
+  and `SimController.queryWindow` returns the aggregates), and the `LbInspection`
+  inspector.
+- Integration: swap `web/`'s synthetic worker for the real `SimController` at
+  `web/src/worker/client.ts` (one URL); the rest of the frontend is unchanged.
 
 ## Integration (after tracks)
 
