@@ -5,6 +5,7 @@ import { ConfigEditor } from '@/components/config/ConfigEditor';
 import { Dock } from '@/components/dock/Dock';
 import { FleetHeatmap } from '@/components/fleet/FleetHeatmap';
 import { DerivedStrip } from '@/components/timeline/DerivedStrip';
+import type { DerivedLine } from '@/components/timeline/DerivedTimeline';
 import { TimelineStrip } from '@/components/timeline/TimelineStrip';
 import { TopologyModal } from '@/components/topology/TopologyModal';
 import type { TopologySnapshot } from '@/components/topology/types';
@@ -44,6 +45,26 @@ const GAUGE_STRIPS = [
 const ENVOY_P50 = gaugeIndex('envoy', 'latencyP50');
 const ENVOY_P90 = gaugeIndex('envoy', 'latencyP90');
 const ENVOY_P99 = gaugeIndex('envoy', 'latencyP99');
+
+// Static line configs for the derived strips. These are MODULE-LEVEL constants
+// (stable references) because DerivedTimeline's mount effect depends on `lines`:
+// an inline array literal would be a fresh reference each App render, tearing
+// down and recreating the uPlot instance on every play/pause/edit (a chart
+// flash). Hoisting pins the reference so the effect only re-runs on a real
+// remount trigger (the latency strip's `revision`, or `height`).
+const LATENCY_LINES = [
+  { label: 'p50', stroke: seriesColor(0) },
+  { label: 'p90', stroke: seriesColor(3) },
+  { label: 'p99', stroke: seriesColor(6) },
+] satisfies DerivedLine[];
+
+const GOODPUT_LINES = [{ label: 'goodput', stroke: seriesColor(5) }] satisfies DerivedLine[];
+
+const LOSSES_LINES = [
+  { label: 'timeouts', stroke: seriesColor(6) },
+  { label: 'envoy rejects', stroke: seriesColor(3) },
+  { label: 'backend shed', stroke: seriesColor(1) },
+] satisfies DerivedLine[];
 
 /** Recompute cadence for the heatmap snapshot: ~8Hz, off the 60fps hot path. */
 const HEATMAP_TICK_MS = 125;
@@ -153,11 +174,7 @@ export function App(): React.JSX.Element {
             ))}
             <DerivedStrip
               label={`Envoy · latency · e${selectedEnvoy}`}
-              lines={[
-                { label: 'p50', stroke: seriesColor(0) },
-                { label: 'p90', stroke: seriesColor(3) },
-                { label: 'p99', stroke: seriesColor(6) },
-              ]}
+              lines={LATENCY_LINES}
               build={buildLatency}
               revision={selectedEnvoy}
             />
@@ -183,18 +200,10 @@ export function App(): React.JSX.Element {
             ))}
 
             {/* Fleet tier: derived goodput and per-stage losses. */}
-            <DerivedStrip
-              label="Fleet · goodput"
-              lines={[{ label: 'goodput', stroke: seriesColor(5) }]}
-              build={buildGoodput}
-            />
+            <DerivedStrip label="Fleet · goodput" lines={GOODPUT_LINES} build={buildGoodput} />
             <DerivedStrip
               label="Fleet · losses by stage"
-              lines={[
-                { label: 'timeouts', stroke: seriesColor(6) },
-                { label: 'envoy rejects', stroke: seriesColor(3) },
-                { label: 'backend shed', stroke: seriesColor(1) },
-              ]}
+              lines={LOSSES_LINES}
               build={buildLosses}
             />
           </main>
