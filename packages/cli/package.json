@@ -1,0 +1,30 @@
+{
+  "name": "@elbsim/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "elbsim": "./bin/elbsim.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "elbsim": "tsx src/cli.ts",
+    "validate": "tsx src/cli.ts validate",
+    "sim": "tsx src/cli.ts run"
+  },
+  "dependencies": {
+    "@elbsim/config": "workspace:*",
+    "@elbsim/protocol": "workspace:*",
+    "@elbsim/sim-core": "workspace:*",
+    "@elbsim/wasm-lb": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "tsx": "^4.19.2"
+  }
+}
