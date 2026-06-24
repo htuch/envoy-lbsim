@@ -34,8 +34,12 @@ export const distributionCases: LbValidationCase[] = [
   },
   {
     id: 'weighted-distribution',
+    // least_request is intentionally excluded: it is active-count-aware (P2C over
+    // lb_weight / (active+1)^bias), so under load its pick share deviates from the
+    // static weight by design. Its `favors-idle` case covers it instead. This
+    // check is for the weight-proportional policies (round_robin, the hash tables).
     title: 'Pick share tracks host weight',
-    appliesTo: ['round_robin', 'least_request', 'ring_hash', 'maglev'],
+    appliesTo: ['round_robin', 'ring_hash', 'maglev'],
     build: (p) =>
       scenario(p, {
         backends: 4,

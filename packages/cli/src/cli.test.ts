@@ -66,13 +66,13 @@ describe('main', () => {
     expect(() => JSON.parse(out.join('\n'))).not.toThrow();
   });
 
-  it('validate with no --policy in real (default) mode runs only lifted set', async () => {
+  it('validate with no --policy in real (default) mode runs the lifted set', async () => {
     const { io, out } = capture();
     const code = await main(['validate'], io, deps);
     expect([0, 1]).toContain(code);
-    // maglev is in LIFTED_POLICIES; round_robin is not
+    // All five policies are lifted, so the real-default run covers them all.
     expect(out.join('\n')).toMatch(/maglev/);
-    expect(out.join('\n')).not.toMatch(/round_robin/);
+    expect(out.join('\n')).toMatch(/round_robin/);
   });
 
   it('validate --mock with no --policy runs ALL_POLICIES', async () => {
@@ -81,13 +81,6 @@ describe('main', () => {
     expect([0, 1]).toContain(code);
     expect(out.join('\n')).toMatch(/round_robin/);
     expect(out.join('\n')).toMatch(/maglev/);
-  });
-
-  it('unlifted --policy in default real mode exits 2 with /not lifted/ message', async () => {
-    const { io, err } = capture();
-    const code = await main(['validate', '--policy', 'ring_hash'], io, deps);
-    expect(code).toBe(2);
-    expect(err.join('\n')).toMatch(/not lifted/);
   });
 
   it('cmdValidate surfaces failed > 0 with exit code 1', async () => {

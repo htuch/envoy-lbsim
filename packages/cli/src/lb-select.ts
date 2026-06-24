@@ -5,12 +5,18 @@ import { loadLbModule } from '@elbsim/wasm-lb';
 import type { SelectedLb } from './driver';
 
 /**
- * Policies the real Wasm module currently supports. Single source of truth for
- * REAL vs MOCK selection; expand in lockstep with Track A (ring_hash, then the
- * EDF policies). Flips real-only validation checks from SKIP to live.
+ * Policies the real Wasm module supports (mirrors `createLb` in
+ * `@elbsim/wasm-lb`'s `bindings/index.ts`). Single source of truth for REAL vs
+ * MOCK selection; keep it in lockstep with the lift. Track A is complete, so all
+ * five Envoy policies are lifted; this stays explicit so a future policy is not
+ * silently assumed real before its Wasm support lands.
  */
 export const LIFTED_POLICIES: ReadonlySet<EnvoyLbPolicyKind> = new Set<EnvoyLbPolicyKind>([
   'maglev',
+  'ring_hash',
+  'round_robin',
+  'least_request',
+  'random',
 ]);
 
 export type LbMode = 'real' | 'mock';
