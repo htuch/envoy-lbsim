@@ -1,5 +1,6 @@
 import type { SimConfig } from '@elbsim/config';
 import { useMemo, useState } from 'react';
+import { TopologyGraph } from '@/components/topology/TopologyGraph';
 import { Segmented } from '@/components/ui/segmented';
 import { makeInspection, makeLatencyWindow, makeTopologySnapshot } from '@/synthetic';
 
@@ -26,13 +27,17 @@ const HARNESS_WINDOW = { fromMs: 0, toMs: 5000 } as const;
 
 export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
   const [view, setView] = useState<ViewId>('topology');
+  const [selectedEnvoy, setSelectedEnvoy] = useState(0);
 
   const snapshot = useMemo(() => makeTopologySnapshot(config, HARNESS_T), [config]);
   const window = useMemo(
     () => makeLatencyWindow(config, HARNESS_WINDOW.fromMs, HARNESS_WINDOW.toMs),
     [config],
   );
-  const inspection = useMemo(() => makeInspection(config, 0, HARNESS_T), [config]);
+  const inspection = useMemo(
+    () => makeInspection(config, selectedEnvoy, HARNESS_T),
+    [config, selectedEnvoy],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -42,15 +47,22 @@ export function Harness({ config }: { config: SimConfig }): React.JSX.Element {
           t = {HARNESS_T} ms
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div className="min-h-0 flex-1">
         {view === 'topology' && (
-          <Placeholder name="Topology graph" detail={`${snapshot.edges.length} edges`} />
+          <TopologyGraph
+            snapshot={snapshot}
+            selectedEnvoy={selectedEnvoy}
+            onSelectEnvoy={setSelectedEnvoy}
+          />
         )}
         {view === 'analysis' && (
           <Placeholder name="Cold-path analysis" detail={`${window.latencies.length} completed`} />
         )}
         {view === 'inspector' && (
-          <Placeholder name="LB inspector" detail={`${inspection.structure.kind} · envoy e0`} />
+          <Placeholder
+            name="LB inspector"
+            detail={`${inspection.structure.kind} · envoy e${selectedEnvoy}`}
+          />
         )}
       </div>
     </div>
