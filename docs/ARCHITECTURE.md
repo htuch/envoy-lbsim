@@ -31,10 +31,18 @@ packages depend on them and can be built against mocks.
 
 The discrete-event simulation kernel (virtual clock, clients, network links,
 Envoy admission queues, backend service models, timeouts, goodput accounting)
-is plain TypeScript in `sim-core`, running in a Web Worker. Only each Envoy
-replica's load balancer policy and its internal data structures live in Wasm,
-compiled from Envoy's actual source. The kernel calls into a Wasm LB instance
-per request (`chooseHost`).
+is plain TypeScript in `sim-core`, running in a Web Worker. Each Envoy replica's
+load balancer lives in Wasm, compiled from Envoy's actual source: not just the
+policy and its data structures (the Maglev table, the EDF heap, the hash ring)
+but Envoy's real `LoadBalancerBase` / `ThreadAwareLoadBalancerBase` too, so
+priority selection, panic-mode threshold, healthy/degraded partitioning,
+locality weighting, and weight normalization are Envoy's own code, not a TS
+re-implementation. The kernel determines host membership and health and feeds
+the full host set across the ABI (`updateHosts`); the lifted base resolves it
+and picks per request (`chooseHost`). See `packages/wasm-lb/shim` for the
+include-shadowing layer that lets the real base compile against lightweight leaf
+interfaces; the request-hashing HTTP path is the one stubbed subsystem (the
+kernel supplies the hash directly).
 
 Why: the LB algorithms are where fidelity matters and where subtle bugs live
 (weighted-RR EDF behavior, Maglev disruption, P2C least-request). Compiling the
