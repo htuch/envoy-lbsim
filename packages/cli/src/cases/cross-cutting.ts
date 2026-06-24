@@ -74,8 +74,8 @@ export const crossCuttingCases: LbValidationCase[] = [
     assert: (s, ctx): Check[] => {
       const checks: Check[] = [];
       const controller = new SimController({ lbModule: ctx.lbModule });
-      // queryWindow does its own fully-drained replay; loadConfig is enough.
-      void controller.loadConfig(ctx.config);
+      // queryWindow does its own fully-drained replay; loadConfigSync is enough.
+      controller.loadConfigSync(ctx.config);
       const agg = controller.queryWindowSync({ fromMs: 0, toMs: ctx.config.time.durationMs });
       const near = (a: number, b: number) =>
         Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));

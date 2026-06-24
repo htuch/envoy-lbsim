@@ -83,6 +83,11 @@ export class SimController implements SimWorkerApi {
   }
 
   async loadConfig(config: SimConfig): Promise<SharedTelemetry> {
+    return this.loadConfigSync(config);
+  }
+
+  /** Synchronous core of {@link loadConfig}, for in-process callers (CLI). */
+  loadConfigSync(config: SimConfig): SharedTelemetry {
     this.ticker.stop();
     this.config = config;
     this.horizon = config.time.durationMs;
