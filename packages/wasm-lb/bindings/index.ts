@@ -16,6 +16,7 @@ import type {
   LbInstance,
   LbModule,
   LbStructure,
+  MaglevInspection,
   WasmHostSet,
   WasmLbContext,
 } from '@elbsim/protocol';
@@ -102,6 +103,30 @@ type WasmLbModuleFactory = () => Promise<WasmLbModule>;
 /** Relative path (from this file) to the built Emscripten ES module. */
 export const ARTIFACT_URL = new URL('../build/lb.mjs', import.meta.url);
 
+/**
+ * Convert a raw Embind inspect() val into a typed protocol {@link LbStructure}.
+ *
+ * For `kind === 'maglev'`, the C++ side returns `table` as a plain JS number[]
+ * (Embind serialises the std::vector). This converts it to a Uint32Array and
+ * derives the per-backend slot tally (`slotCounts`). All other kinds are
+ * returned unchanged.
+ */
+export function normalizeStructure(raw: unknown): LbStructure {
+  if (raw !== null && typeof raw === 'object' && (raw as { kind: unknown }).kind === 'maglev') {
+    const r = raw as { kind: 'maglev'; tableSize: number; table: number[] };
+    const table = Uint32Array.from(r.table);
+    const slotCounts: Record<number, number> = {};
+    for (const b of table) slotCounts[b] = (slotCounts[b] ?? 0) + 1;
+    return {
+      kind: 'maglev',
+      tableSize: r.tableSize,
+      table,
+      slotCounts,
+    } satisfies MaglevInspection;
+  }
+  return raw as LbStructure;
+}
+
 // The loaded Embind module, shared by all instances (one Wasm module, many LBs).
 let wasmModule: WasmLbModule | undefined;
 
@@ -139,7 +164,7 @@ function adapt(mod: WasmLbModule, lb: EmbindLb): LbInstance {
       return lb.chooseHost(ctx.hashKey ?? 0) as BackendId;
     },
     inspect(): LbStructure {
-      return lb.inspect();
+      return normalizeStructure(lb.inspect());
     },
     delete(): void {
       lb.delete();
