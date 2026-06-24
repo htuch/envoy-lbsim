@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BACKEND_GAUGES,
+  CLIENT_GAUGES,
   ENVOY_GAUGES,
   frameStride,
   GaugeRingBuffer,
@@ -13,6 +14,15 @@ import {
 const spec: RingBufferSpec = { kind: 'backend', entityCount: 3, capacity: 4 };
 
 describe('gauge columns', () => {
+  it('client gauges expose timedOut as an appended column', () => {
+    expect(CLIENT_GAUGES).toContain('timedOut');
+    // appended, not reordered: the original four keep their indices
+    expect(gaugeIndex('client', 'emitRate')).toBe(0);
+    expect(gaugeIndex('client', 'completed')).toBe(2);
+    expect(gaugeIndex('client', 'failed')).toBe(3);
+    expect(gaugeIndex('client', 'timedOut')).toBe(gaugeFields('client').length - 1);
+  });
+
   it('exposes ordered fields per entity kind', () => {
     expect(gaugeFields('envoy')).toEqual(ENVOY_GAUGES);
     expect(gaugeFields('backend')).toEqual(BACKEND_GAUGES);

@@ -53,6 +53,16 @@ export interface WindowAggregate {
   latencyP99: number;
 }
 
+/** Per-request latency samples over a committed window, for the cold-path charts. */
+export interface WindowLatencySamples {
+  fromMs: number;
+  toMs: number;
+  /** Ascending completed-request latencies (ms), downsampled to a bounded size. */
+  latencies: number[];
+  /** True if the cohort was larger than the cap and was downsampled. */
+  capped: boolean;
+}
+
 /** The Comlink-exposed worker API. All methods are async across the boundary. */
 export interface SimWorkerApi {
   /** Load a config and prepare a run; returns the shared telemetry handles. */
@@ -68,6 +78,8 @@ export interface SimWorkerApi {
   status(): Promise<RunStatus>;
   /** Compute cold-path aggregates over a committed window. */
   queryWindow(q: WindowQuery): Promise<WindowAggregate>;
+  /** Latency samples over a committed window (CDF/histogram source). */
+  queryWindowLatencies(q: WindowQuery): Promise<WindowLatencySamples>;
   /** Serialize an Envoy's internal LB structures at a virtual instant. */
   requestInspection(envoy: EnvoyId, tMs: number): Promise<LbInspection>;
 }

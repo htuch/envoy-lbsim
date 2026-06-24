@@ -16,7 +16,13 @@ import type { EntityKind } from './ids';
  *   data:    Float32Array[cap * entityCount * fieldCount]  (row-major per frame)
  */
 
-export const CLIENT_GAUGES = ['emitRate', 'inFlight', 'completed', 'failed'] as const;
+export const CLIENT_GAUGES = [
+  'emitRate',
+  'inFlight',
+  'completed',
+  'failed',
+  'timedOut', // requests that exceeded the request timeout this interval
+] as const;
 
 export const ENVOY_GAUGES = [
   'inFlight', // active upstream requests
