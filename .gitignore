@@ -15,6 +15,9 @@ packages/wasm-lb/dist/
 coverage/
 *.local
 
+# Local secrets (Cloudflare deploy token, etc.)
+.env
+
 # Logs
 *.log
 npm-debug.log*

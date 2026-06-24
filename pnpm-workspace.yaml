@@ -8,3 +8,7 @@ allowBuilds:
   lefthook: true
   "@biomejs/biome": true
   esbuild: true
+  # Pulled in by wrangler (Cloudflare Pages deploy); their build scripts fetch
+  # the prebuilt native binaries. Approve them so install is clean.
+  sharp: true
+  workerd: true

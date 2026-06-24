@@ -44,8 +44,11 @@ wasm-test: ## Build the Wasm LB and run the golden smoke
 build: ## Production build of the web app
 > pnpm --filter web build
 
+deploy: ## Build + deploy the web app to Cloudflare Pages (envoy-lb-sim.pages.dev)
+> ./scripts/deploy.sh
+
 clean: ## Remove build outputs and coverage
 > rm -rf web/dist web/coverage packages/wasm-lb/build
 > rm -rf packages/config/coverage packages/protocol/coverage packages/sim-core/coverage
 
-.PHONY: help install dev typecheck test test-cov lint ci wasm wasm-test build clean
+.PHONY: help install dev typecheck test test-cov lint ci wasm wasm-test build deploy clean

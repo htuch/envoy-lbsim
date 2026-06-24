@@ -1,0 +1,16 @@
+# Cloudflare Pages response headers. The cross-origin isolation pair below
+# mirrors web/vite.config.ts (server/preview headers): the app shares telemetry
+# with the sim worker over SharedArrayBuffer, which the browser only exposes to
+# a cross-origin-isolated page. Keep these in sync with vite.config.ts; if they
+# drift, SharedArrayBuffer becomes undefined in production and the worker
+# telemetry path breaks. Applying to /* covers index.html, the ES-module
+# worker, and the .wasm (all same-origin, so they load fine under require-corp).
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+# Vite content-hashes everything under /assets/, so these URLs are immutable:
+# a new build emits new hashed names.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
