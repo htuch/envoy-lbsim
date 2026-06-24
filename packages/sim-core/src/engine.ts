@@ -99,6 +99,7 @@ interface ClientState {
   emitted: number; // this interval
   completed: number; // this interval
   failed: number; // this interval
+  timedOut: number; // this interval
 }
 
 interface EnvoyState {
@@ -253,6 +254,7 @@ export class SimEngine {
         emitted: 0,
         completed: 0,
         failed: 0,
+        timedOut: 0,
       });
     }
   }
@@ -534,8 +536,7 @@ export class SimEngine {
     const client = this.clients[req.client] as ClientState;
     client.inFlight--;
     client.failed++;
-    const envoy = this.envoys[req.envoy] as EnvoyState;
-    envoy.rejects++;
+    client.timedOut++;
     this.emit({
       t: this.now(),
       req: reqId,
@@ -662,9 +663,11 @@ export class SimEngine {
       row[o + gaugeIndex('client', 'inFlight')] = c.inFlight;
       row[o + gaugeIndex('client', 'completed')] = c.completed;
       row[o + gaugeIndex('client', 'failed')] = c.failed;
+      row[o + gaugeIndex('client', 'timedOut')] = c.timedOut;
       c.emitted = 0;
       c.completed = 0;
       c.failed = 0;
+      c.timedOut = 0;
     });
     this.channels.client.push(t, row);
   }

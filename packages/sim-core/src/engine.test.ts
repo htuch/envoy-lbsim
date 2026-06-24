@@ -1,6 +1,7 @@
 import { parseSimConfig, type SimConfig } from '@elbsim/config';
 import {
   BACKEND_GAUGES,
+  CLIENT_GAUGES,
   type CompletedEvent,
   ENVOY_GAUGES,
   gaugeIndex,
@@ -420,5 +421,94 @@ describe('SimEngine gauges', () => {
     expect(p50).toBeLessThan(8);
     expect(last?.values.length).toBe(fields); // one backend
     void ENVOY_GAUGES;
+    void CLIENT_GAUGES;
+  });
+});
+
+// --- gauge-correctness harness helpers -------------------------------------
+
+/**
+ * Build and run a scenario to completion, returning the engine.
+ * A thin convenience so test bodies stay declarative.
+ */
+function runScenario(cfg: SimConfig): { engine: SimEngine } {
+  const engine = new SimEngine(cfg);
+  engine.runToCompletion();
+  return { engine };
+}
+
+/** Collect all frames from a channel as plain objects. */
+function collectFrames(
+  engine: SimEngine,
+  kind: 'client' | 'envoy' | 'backend',
+): Array<{ t: number; values: Float32Array }> {
+  const ch = engine.channels[kind];
+  const n = ch.size();
+  const frames: Array<{ t: number; values: Float32Array }> = [];
+  for (let i = 0; i < n; i++) frames.push(ch.frameAt(i));
+  return frames;
+}
+
+/** Sum a single named gauge across all frames and all entity slots. */
+function sumGauge(
+  frames: Array<{ t: number; values: Float32Array }>,
+  kind: 'client' | 'envoy' | 'backend',
+  name: string,
+): number {
+  const gaugesList = { client: CLIENT_GAUGES, envoy: ENVOY_GAUGES, backend: BACKEND_GAUGES };
+  const fields = gaugesList[kind].length;
+  const idx = gaugeIndex(kind, name);
+  let total = 0;
+  for (const f of frames) {
+    for (let e = 0; e < f.values.length / fields; e++) {
+      total += f.values[e * fields + idx] ?? 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * A config where every request times out before receiving a response.
+ * Backend latency (200ms) >> request timeout (5ms).
+ * Queue limits are generous so nothing is shed at admission.
+ */
+function timeoutOnlyConfig(): SimConfig {
+  return makeConfig({
+    time: { durationMs: 100, sampleIntervalMs: 10 },
+    clients: {
+      count: 1,
+      arrival: { kind: 'periodic', ratePerSec: 50 },
+      requestKey: { kind: 'uniform', n: 8 },
+      lb: { kind: 'round_robin' },
+    },
+    envoys: {
+      count: 1,
+      policy: { kind: 'round_robin' },
+      queue: { maxConcurrentRequests: 500, queueCapacity: 500 },
+    },
+    backends: {
+      count: 1,
+      defaults: { capacity: 500, queueSize: 500, latency: { kind: 'constant', value: 200 } },
+    },
+    timeouts: { requestTimeoutMs: 5 },
+  });
+}
+
+describe('SimEngine rejectRate / timedOut gauge correctness', () => {
+  it('a pure-timeout scenario leaves envoy rejectRate at zero', () => {
+    const { engine } = runScenario(timeoutOnlyConfig());
+    const envoyFrames = collectFrames(engine, 'envoy');
+    const fields = ENVOY_GAUGES.length;
+    const rej = gaugeIndex('envoy', 'rejectRate');
+    expect(envoyFrames.some((f) => f.values.some((_v, i) => i % fields === rej && _v > 0))).toBe(
+      false,
+    );
+  });
+
+  it('client.timedOut counts timeouts per interval and resets', () => {
+    const { engine } = runScenario(timeoutOnlyConfig());
+    const clientFrames = collectFrames(engine, 'client');
+    const total = sumGauge(clientFrames, 'client', 'timedOut');
+    expect(total).toBeGreaterThan(0);
   });
 });
