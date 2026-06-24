@@ -82,13 +82,14 @@ layer, SVG owns the expressive layer. The topology graph uses `@xyflow/react`
 (requests in flight) use a Canvas overlay, escalating to WebGL only if needed.
 
 The frontend (`web/`) talks only to the `SimWorkerApi` Comlink contract, never
-to a kernel directly. Until Track B lands, a synthetic worker
-(`web/src/worker/`) implements that same interface: it allocates the SAB rings
-and paces deterministic gauge frames into them under transport control, so the
-hot-path render loop and config editor run against the real contract. Track B's
-kernel worker is a drop-in swap at one URL in `web/src/worker/client.ts`. This
-mirrors how `sim-core/mock-lb.ts` stands in for the Wasm LB: scaffolds live
-behind the durable interface, never alongside it.
+to a kernel directly. `sim-core`'s kernel worker (Track B) is built, but the web
+app is not yet wired to it; until that integration lands, a synthetic worker
+(`web/src/worker/mock-sim-worker.ts`) implements the same interface: it
+allocates the SAB rings and paces deterministic gauge frames into them under
+transport control, so the hot-path render loop and config editor run against the
+real contract. The kernel worker is a drop-in swap at one URL in
+`web/src/worker/client.ts`. This mirrors how `sim-core/mock-lb.ts` stands in for
+the Wasm LB: scaffolds live behind the durable interface, never alongside it.
 
 ### 4. Reproducible Wasm build via submodules + em++ (no Bazel, no CMake)
 
@@ -154,8 +155,11 @@ The web app additionally has a Playwright E2E suite (`web/e2e/`, run with
 canvas rendering, the live brush highlight, and SharedArrayBuffer cross-origin
 isolation. Vitest is scoped to `src/**/*.test.*` so it ignores the E2E specs.
 The Wasm module builds with `em++` (needs an activated emsdk) and is verified by
-a golden smoke test (real Envoy EDF reproducing weighted distribution) under
-node; CI runs it in a dedicated job with the emsdk action.
+golden node tests: `test/maglev.mjs` (run by `pnpm run wasm:test`) matches the
+`lb_core` oracle slot-for-slot and checks the lifted real base (health
+filtering, panic mode, priority failover), and `test/smoke.mjs` is an EDF
+weighted-distribution smoke. CI builds the module in a dedicated job (emsdk
+action) and runs the smoke.
 
 ## Visual design principle
 

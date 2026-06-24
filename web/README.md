@@ -1,32 +1,43 @@
-# React + TypeScript + Vite
+# web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The dashboard for the Envoy LB simulator: a Vite + React 19 single-page app
+that drives the simulation worker and renders the visualizations. It is the
+only frontend in the monorepo. See the repo root `README.md` for the project
+overview and `docs/ARCHITECTURE.md` for how this app fits the whole.
 
-Currently, two official plugins are available:
+## What is here
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `src/components/` the views: `timeline/` (uPlot hot-path strips),
+  `topology/` (@xyflow graph), `analysis/` (Observable Plot cold-path charts),
+  `inspector/` (LB data-structure inspector), `config/` (schema-driven editor),
+  `transport/` (playback controls), `views/` (the C-D view switcher), `ui/`
+  (shadcn primitives).
+- `src/worker/` the Comlink + SharedArrayBuffer bridge to the sim worker.
+  Today it spins up a synthetic telemetry worker (`mock-sim-worker.ts`) that
+  implements the real `SimWorkerApi`; the kernel worker is a drop-in swap at
+  one URL in `client.ts` once integration lands (see `docs/STATUS.md`).
+- `src/synthetic/` deterministic data generators that feed the analytical
+  views until they read real worker telemetry.
+- `src/store/` the zustand store mirroring worker state.
+- `e2e/` Playwright specs for what units cannot prove (real canvas rendering,
+  the live brush highlight, cross-origin isolation).
 
-## React Compiler
+## Commands
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Run these from the repo root (a pnpm workspace):
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+pnpm --filter web dev            # dev server (sets COOP/COEP for SharedArrayBuffer)
+pnpm --filter web build          # production build into web/dist
+pnpm --filter web test           # Vitest unit tests (src/**/*.test.*)
+pnpm --filter web test:e2e       # Playwright E2E (test:e2e:install once first)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Lint, format, and type-check run repo-wide; see the root `CLAUDE.md`.
+
+## Notes
+
+- The app must be cross-origin isolated for `SharedArrayBuffer`. The dev and
+  preview servers set COOP/COEP from `vite.config.ts`; production ships them
+  from `public/_headers`. See `docs/DEPLOY.md`.
+- Linting and formatting are Biome (repo root), not ESLint or Oxlint.
