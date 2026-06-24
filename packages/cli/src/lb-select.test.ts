@@ -15,7 +15,7 @@ describe('selectLb', () => {
   });
 
   it('mode real throws for an unlifted policy', async () => {
-    await expect(selectLb('random', 'real', present)).rejects.toThrow(/--mock/);
+    await expect(selectLb('random', 'real', present)).rejects.toThrow(/not lifted/);
   });
 
   it('mode real throws when the artifact is absent', async () => {
