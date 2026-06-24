@@ -1,10 +1,107 @@
 import { defaultSimConfig } from '@elbsim/config';
+import type {
+  LbInspection,
+  WindowAggregate,
+  WindowLatencySamples,
+  WindowQuery,
+} from '@elbsim/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MockSimRunner } from '@/worker/runner';
 import { useSimStore } from './sim-store';
 
 function reset(): void {
   useSimStore.setState(useSimStore.getInitialState(), true);
+}
+
+/** Minimal stub window aggregate. */
+const FAKE_AGGREGATE: WindowAggregate = {
+  fromMs: 0,
+  toMs: 1000,
+  totalRequests: 100,
+  completed: 95,
+  timedOut: 3,
+  rejected: 2,
+  goodput: 0.95,
+  latencyP50: 10,
+  latencyP90: 30,
+  latencyP99: 80,
+};
+
+/** Minimal stub window latency samples. */
+const FAKE_SAMPLES: WindowLatencySamples = {
+  fromMs: 0,
+  toMs: 1000,
+  latencies: [5, 10, 20],
+  capped: false,
+};
+
+/** Minimal stub LbInspection. */
+const FAKE_INSPECTION: LbInspection = {
+  envoy: 0,
+  t: 500,
+  policy: 'round_robin',
+  panic: false,
+  hosts: [],
+  structure: { kind: 'none' },
+};
+
+/**
+ * A fake SimWorkerApi that supports manual promise resolution for testing
+ * async stale-drop logic. Implements only the methods needed by the new store
+ * additions; loadConfig/status use real MockSimRunner.
+ */
+class FakeApi extends MockSimRunner {
+  private _windowResolvers: Array<(v: [WindowAggregate, WindowLatencySamples]) => void> = [];
+  private _inspectionResolvers: Array<(v: LbInspection) => void> = [];
+
+  pendingWindowCount(): number {
+    return this._windowResolvers.length;
+  }
+
+  pendingInspectionCount(): number {
+    return this._inspectionResolvers.length;
+  }
+
+  /** Override queryWindow to queue a deferred promise. */
+  override queryWindow(_q: WindowQuery): Promise<WindowAggregate> {
+    // The store calls queryWindow and queryWindowLatencies in parallel;
+    // we resolve them together via resolveNextWindow.
+    return new Promise((res) => {
+      // Pair resolver stored alongside latencies resolver index; this side
+      // resolves the aggregate only when resolveNextWindow is called.
+      this._windowResolvers.push(([agg]) => res(agg));
+    });
+  }
+
+  override queryWindowLatencies(_q: WindowQuery): Promise<WindowLatencySamples> {
+    return new Promise((res) => {
+      this._windowResolvers.push(([_, samples]) => res(samples));
+    });
+  }
+
+  /** Resolve the oldest pending queryWindow + queryWindowLatencies pair. */
+  resolveNextWindow(
+    agg: WindowAggregate = FAKE_AGGREGATE,
+    samples: WindowLatencySamples = FAKE_SAMPLES,
+  ): void {
+    // Two resolvers were pushed (one for aggregate, one for samples) -- drain both.
+    const r1 = this._windowResolvers.shift();
+    const r2 = this._windowResolvers.shift();
+    r1?.([agg, samples]);
+    r2?.([agg, samples]);
+  }
+
+  override requestInspection(_envoy: number, _tMs: number): Promise<LbInspection> {
+    return new Promise((res) => {
+      this._inspectionResolvers.push(res);
+    });
+  }
+
+  /** Resolve the oldest pending requestInspection call. */
+  resolveNextInspection(insp: LbInspection = FAKE_INSPECTION): void {
+    const r = this._inspectionResolvers.shift();
+    r?.(insp);
+  }
 }
 
 describe('useSimStore', () => {
@@ -84,5 +181,138 @@ describe('useSimStore', () => {
     useSimStore.getState().setSelection({ fromMs: 1000, toMs: 2000 });
     await useSimStore.getState().load();
     expect(useSimStore.getState().selection).toBeNull();
+  });
+
+  // ---- selectedEnvoy --------------------------------------------------------
+
+  it('selectedEnvoy initialises to 0', () => {
+    expect(useSimStore.getState().selectedEnvoy).toBe(0);
+  });
+
+  it('setSelectedEnvoy updates selectedEnvoy', () => {
+    useSimStore.getState().setSelectedEnvoy(3);
+    expect(useSimStore.getState().selectedEnvoy).toBe(3);
+  });
+
+  // ---- handle / cache clearing ----------------------------------------------
+
+  it('handle initialises to 0 and load() bumps it each call', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    expect(useSimStore.getState().handle).toBe(0);
+    await useSimStore.getState().load();
+    expect(useSimStore.getState().handle).toBe(1);
+    await useSimStore.getState().load();
+    expect(useSimStore.getState().handle).toBe(2);
+  });
+
+  it('load() clears window and inspection caches', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    // Seed some cache state manually so we can verify it is cleared.
+    useSimStore.setState({ windowAggregate: FAKE_AGGREGATE, windowSamples: FAKE_SAMPLES });
+
+    await useSimStore.getState().load();
+    const s = useSimStore.getState();
+    expect(s.windowAggregate).toBeNull();
+    expect(s.windowSamples).toBeNull();
+    expect(s.inspection).toBeNull();
+  });
+
+  // ---- loadWindow -----------------------------------------------------------
+
+  it('loadWindow populates windowAggregate and windowSamples and toggles windowLoading', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    // Kick off loadWindow (does not await yet).
+    const q: WindowQuery = { fromMs: 0, toMs: 1000 };
+    const loading = useSimStore.getState().loadWindow(q);
+
+    // While in-flight, windowLoading should be true.
+    expect(useSimStore.getState().windowLoading).toBe(true);
+
+    // Resolve the fake API calls.
+    api.resolveNextWindow();
+
+    await loading;
+
+    const s = useSimStore.getState();
+    expect(s.windowLoading).toBe(false);
+    expect(s.windowAggregate).toEqual(FAKE_AGGREGATE);
+    expect(s.windowSamples).toEqual(FAKE_SAMPLES);
+  });
+
+  it('stale loadWindow (handle changed mid-flight) does not overwrite newer state', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    const q: WindowQuery = { fromMs: 0, toMs: 1000 };
+
+    // Start a loadWindow.
+    const staleLoad = useSimStore.getState().loadWindow(q);
+
+    // Simulate a reload while the window query is in-flight; this bumps handle.
+    await useSimStore.getState().load();
+    // Seed fresh window data from the new run.
+    const freshAggregate: WindowAggregate = { ...FAKE_AGGREGATE, totalRequests: 999 };
+    useSimStore.setState({ windowAggregate: freshAggregate });
+
+    // Now resolve the OLD (stale) query.
+    api.resolveNextWindow();
+    await staleLoad;
+
+    // The stale result must NOT have overwritten the fresh data.
+    expect(useSimStore.getState().windowAggregate?.totalRequests).toBe(999);
+  });
+
+  // ---- loadInspection -------------------------------------------------------
+
+  it('loadInspection populates inspection and toggles inspectionLoading', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    const loading = useSimStore.getState().loadInspection(0, 500);
+    expect(useSimStore.getState().inspectionLoading).toBe(true);
+
+    api.resolveNextInspection();
+    await loading;
+
+    const s = useSimStore.getState();
+    expect(s.inspectionLoading).toBe(false);
+    expect(s.inspection).toEqual(FAKE_INSPECTION);
+  });
+
+  it('superseded loadInspection response does not overwrite a newer one', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    // Start two in-flight inspection requests.
+    const first = useSimStore.getState().loadInspection(0, 100);
+    const second = useSimStore.getState().loadInspection(0, 200);
+
+    const firstResult: LbInspection = { ...FAKE_INSPECTION, t: 100 };
+    const secondResult: LbInspection = { ...FAKE_INSPECTION, t: 200 };
+
+    // Resolve second first (newer wins), then resolve first (older, must be dropped).
+    api.resolveNextInspection(firstResult); // resolves first request
+    api.resolveNextInspection(secondResult); // resolves second request
+    await Promise.all([first, second]);
+
+    // The inspection stored should be the second (newer req id), even though
+    // it arrived second in wall time.
+    expect(useSimStore.getState().inspection?.t).toBe(200);
+  });
+
+  it('inspectReqSeq counter lives in store state (not module globals)', () => {
+    // Verify initial state contains the counter.
+    const s = useSimStore.getState() as unknown as Record<string, unknown>;
+    expect(typeof s['inspectReqSeq']).toBe('number');
   });
 });

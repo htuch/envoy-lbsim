@@ -2,9 +2,12 @@ import { defaultSimConfig, type SimConfig } from '@elbsim/config';
 import {
   type EntityKind,
   GaugeRingBuffer,
+  type LbInspection,
   type RunStatus,
   type SharedTelemetry,
   type SimWorkerApi,
+  type WindowAggregate,
+  type WindowLatencySamples,
   type WindowQuery,
 } from '@elbsim/protocol';
 import { create } from 'zustand';
@@ -39,6 +42,33 @@ export interface SimStore {
   /** The committed brushed x-window shared across all timelines (null = live). */
   selection: TimelineSelection;
 
+  /** The currently selected Envoy replica index (0-based). */
+  selectedEnvoy: number;
+
+  /**
+   * Monotonically-bumped version integer. Incremented on every {@link load} so
+   * in-flight async reads against the old run can be identified and dropped.
+   */
+  handle: number;
+
+  /** Cold-path window aggregate; null while no window is committed or loading. */
+  windowAggregate: WindowAggregate | null;
+  /** Cold-path per-request latency samples; null while no window is committed or loading. */
+  windowSamples: WindowLatencySamples | null;
+  /** True while a {@link loadWindow} call is outstanding. */
+  windowLoading: boolean;
+
+  /** Most recently committed LB inspection; null until first fetch. */
+  inspection: LbInspection | null;
+  /** True while a {@link loadInspection} call is outstanding. */
+  inspectionLoading: boolean;
+
+  /**
+   * Monotonic sequence counter for in-flight inspection requests. Lives in
+   * store state (not a module global) so concurrent tests do not interfere.
+   */
+  inspectReqSeq: number;
+
   attach: (api: SimWorkerApi) => void;
   /** Load a config (defaults to the current draft) and prepare a fresh run. */
   load: (config?: SimConfig) => Promise<void>;
@@ -53,6 +83,19 @@ export interface SimStore {
   setConfig: (config: SimConfig) => void;
   /** Commit (or clear, with `null`) the shared brushed window. */
   setSelection: (selection: TimelineSelection) => void;
+  /** Update the selected Envoy replica index. */
+  setSelectedEnvoy: (i: number) => void;
+  /**
+   * Fetch window aggregate and latency samples for the given query in parallel.
+   * Drops the result if the run handle changed (a `load()` happened mid-flight).
+   */
+  loadWindow: (q: WindowQuery) => Promise<void>;
+  /**
+   * Fetch an LB inspection snapshot for the given Envoy at the given virtual
+   * time. Only the latest in-flight request commits; earlier superseded
+   * responses are silently discarded.
+   */
+  loadInspection: (envoy: number, tMs: number) => Promise<void>;
 }
 
 const IDLE_STATUS: RunStatus = { state: 'idle', virtualTimeMs: 0, speed: 0 };
@@ -81,6 +124,14 @@ export const useSimStore = create<SimStore>((set, get) => ({
   rings: new Map(),
   ready: false,
   selection: null,
+  selectedEnvoy: 0,
+  handle: 0,
+  windowAggregate: null,
+  windowSamples: null,
+  windowLoading: false,
+  inspection: null,
+  inspectionLoading: false,
+  inspectReqSeq: 0,
 
   attach: (api) => set({ api }),
 
@@ -89,8 +140,17 @@ export const useSimStore = create<SimStore>((set, get) => ({
     if (!api) throw new Error('store is not attached to a worker');
     const next = config ?? draft;
     const telemetry = await api.loadConfig(next);
-    // A fresh run invalidates any prior brushed window.
-    set({ config: next, rings: ringsFromTelemetry(telemetry), ready: true, selection: null });
+    // A fresh run invalidates any prior brushed window and all caches.
+    set({
+      config: next,
+      rings: ringsFromTelemetry(telemetry),
+      ready: true,
+      selection: null,
+      handle: get().handle + 1,
+      windowAggregate: null,
+      windowSamples: null,
+      inspection: null,
+    });
     await get().syncStatus();
   },
 
@@ -138,4 +198,42 @@ export const useSimStore = create<SimStore>((set, get) => ({
   setConfig: (config) => set({ config }),
 
   setSelection: (selection) => set({ selection }),
+
+  setSelectedEnvoy: (i) => set({ selectedEnvoy: i }),
+
+  loadWindow: async (q) => {
+    const { api } = get();
+    if (!api) return;
+    const capturedHandle = get().handle;
+    set({ windowLoading: true });
+    try {
+      const [agg, samples] = await Promise.all([api.queryWindow(q), api.queryWindowLatencies(q)]);
+      // Drop stale: the run was reloaded while we were in-flight.
+      if (get().handle !== capturedHandle) return;
+      set({ windowAggregate: agg, windowSamples: samples });
+    } finally {
+      // Only clear the loading flag if we are still the current run.
+      if (get().handle === capturedHandle) {
+        set({ windowLoading: false });
+      }
+    }
+  },
+
+  loadInspection: async (envoy, tMs) => {
+    const { api } = get();
+    if (!api) return;
+    // Bump the sequence counter and capture this request's id.
+    const mySeq = get().inspectReqSeq + 1;
+    set({ inspectReqSeq: mySeq, inspectionLoading: true });
+    try {
+      const result = await api.requestInspection(envoy, tMs);
+      // Only commit if no newer request has been issued since we started.
+      if (get().inspectReqSeq !== mySeq) return;
+      set({ inspection: result });
+    } finally {
+      if (get().inspectReqSeq === mySeq) {
+        set({ inspectionLoading: false });
+      }
+    }
+  },
 }));
