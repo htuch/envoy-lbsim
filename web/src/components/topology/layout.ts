@@ -1,6 +1,6 @@
 import dagre from '@dagrejs/dagre';
 import type { Edge, Node } from '@xyflow/react';
-import type { TopologyNodeStatus, TopologySnapshot } from '@/synthetic';
+import type { TopologyNodeStatus, TopologySnapshot } from './types';
 
 /**
  * Pure topology layout: turn a {@link TopologySnapshot} into positioned React

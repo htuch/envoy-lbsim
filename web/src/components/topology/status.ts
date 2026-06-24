@@ -1,4 +1,4 @@
-import type { TopologyNodeStatus } from '@/synthetic';
+import type { TopologyNodeStatus } from './types';
 
 /**
  * Visual encodings for topology node status. Kept pure and separate from the

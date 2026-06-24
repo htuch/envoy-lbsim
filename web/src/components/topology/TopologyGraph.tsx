@@ -7,7 +7,7 @@ import {
   ReactFlow,
 } from '@xyflow/react';
 import { useCallback, useMemo } from 'react';
-import type { TopologySnapshot } from '@/synthetic';
+import type { TopologySnapshot } from './types';
 import '@xyflow/react/dist/style.css';
 import { EntityNode } from './EntityNode';
 import { type EntityNode as EntityNodeType, layoutTopology } from './layout';

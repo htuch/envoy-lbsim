@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { TopologyNodeStatus } from '@/synthetic';
 import { statusBadge, utilizationColor } from './status';
+import type { TopologyNodeStatus } from './types';
 
 function node(partial: Partial<TopologyNodeStatus>): TopologyNodeStatus {
   return {

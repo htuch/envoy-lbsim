@@ -1,6 +1,13 @@
 import { resolveBackend, type SimConfig } from '@elbsim/config';
-import type { EntityKind } from '@elbsim/protocol';
 import { Prng } from '@elbsim/sim-core';
+import type { TopologyNodeStatus, TopologySnapshot } from '@/components/topology/types';
+import { makeEdges } from '@/lib/topology-edges';
+
+export type {
+  TopologyEdge,
+  TopologyNodeStatus,
+  TopologySnapshot,
+} from '@/components/topology/types';
 
 /**
  * Synthetic topology snapshots for the Track D harness.
@@ -10,49 +17,6 @@ import { Prng } from '@elbsim/sim-core';
  * deterministic, seed-derived snapshots. Field names mirror the gauge schemas in
  * `@elbsim/protocol` so the view code stays unchanged when real telemetry lands.
  */
-
-/** One entity's live status as the topology graph renders it. */
-export interface TopologyNodeStatus {
-  kind: EntityKind;
-  index: number;
-  label: string;
-  /** Active in-flight requests at the node. */
-  inFlight: number;
-  /** Pending admission/queue depth. */
-  queueDepth: number;
-  /** Queue capacity (the denominator for the queue bar); 0 if not queued. */
-  queueCapacity: number;
-  /** Load in [0,1]: inFlight / capacity (backends) or / maxConcurrent (envoys). */
-  utilization: number;
-  /**
-   * Health ordinal. Backends use the `BackendHealth` order (0 healthy .. 3
-   * draining) to match the `backend.health` gauge; clients/envoys are always 0.
-   */
-  health: 0 | 1 | 2 | 3;
-  /** Envoy priority-set panic mode (always false for clients/backends). */
-  panic: boolean;
-  region: string;
-  zone: string;
-}
-
-/** A directed traffic edge with its relative share for stroke weighting. */
-export interface TopologyEdge {
-  fromKind: EntityKind;
-  fromIndex: number;
-  toKind: EntityKind;
-  toIndex: number;
-  /** Relative traffic share in [0,1], used to weight the edge stroke. */
-  share: number;
-}
-
-/** A full topology snapshot at one virtual instant. */
-export interface TopologySnapshot {
-  t: number;
-  clients: TopologyNodeStatus[];
-  envoys: TopologyNodeStatus[];
-  backends: TopologyNodeStatus[];
-  edges: TopologyEdge[];
-}
 
 /** Draw an integer in [0, max] with a soft bias toward the low end. */
 function loadDraw(rng: Prng, max: number): number {
@@ -138,80 +102,4 @@ export function makeTopologySnapshot(
   }
 
   return { t, clients, envoys, backends, edges: makeEdges(config, rng) };
-}
-
-/**
- * Logical traffic edges: clients -> envoys per the client LB policy, and the
- * full envoy -> backend mesh weighted by backend weight. Shares are normalized
- * per source so an edge stroke encodes its slice of that source's traffic.
- */
-function makeEdges(config: SimConfig, rng: Prng): TopologyEdge[] {
-  const edges: TopologyEdge[] = [];
-  const envoyCount = config.envoys.count;
-  const backendCount = config.backends.count;
-
-  for (let c = 0; c < config.clients.count; c++) {
-    // Every client routes to at least one Envoy (the schema requires a positive
-    // Envoy count and positive subset/resolved-set sizes), so the share divisor
-    // is always non-zero.
-    const targets = clientEnvoyTargets(config, c, rng);
-    const share = 1 / targets.length;
-    for (const e of targets) {
-      edges.push({ fromKind: 'client', fromIndex: c, toKind: 'envoy', toIndex: e, share });
-    }
-  }
-
-  // Backend weights are positive integers over a positive backend count, so the
-  // weight sum is always non-zero.
-  const weights: number[] = [];
-  let weightSum = 0;
-  for (let b = 0; b < backendCount; b++) {
-    const w = resolveBackend(config.backends, b).weight;
-    weights.push(w);
-    weightSum += w;
-  }
-  for (let e = 0; e < envoyCount; e++) {
-    for (let b = 0; b < backendCount; b++) {
-      edges.push({
-        fromKind: 'envoy',
-        fromIndex: e,
-        toKind: 'backend',
-        toIndex: b,
-        share: weights[b]! / weightSum,
-      });
-    }
-  }
-
-  return edges;
-}
-
-/** Which Envoy replicas a client routes to, per its client-side LB policy. */
-function clientEnvoyTargets(config: SimConfig, client: number, rng: Prng): number[] {
-  const n = config.envoys.count;
-  const all = Array.from({ length: n }, (_, i) => i);
-  const lb = config.clients.lb;
-  switch (lb.kind) {
-    case 'hash':
-      // Sticky: each client lands on one Envoy by key hash (modeled by index).
-      return [client % n];
-    case 'subset': {
-      const size = Math.min(lb.subsetSize, n);
-      // Deterministic random subset per client.
-      const sub = new Prng(client + 1);
-      const pool = [...all];
-      const picked: number[] = [];
-      for (let k = 0; k < size; k++) {
-        picked.push(pool.splice(sub.nextInt(pool.length), 1)[0]!);
-      }
-      return picked.sort((a, b) => a - b);
-    }
-    case 'dns_approx': {
-      const size = Math.min(lb.resolvedSetSize, n);
-      const start = rng.nextInt(n);
-      return Array.from({ length: size }, (_, k) => (start + k) % n).sort((a, b) => a - b);
-    }
-    default:
-      // round_robin / random spread across the full set over time.
-      return all;
-  }
 }

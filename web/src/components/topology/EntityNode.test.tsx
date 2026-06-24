@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { type NodeProps, ReactFlowProvider } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
-import type { TopologyNodeStatus } from '@/synthetic';
 import { EntityNode } from './EntityNode';
 import type { EntityNode as EntityNodeType } from './layout';
+import type { TopologyNodeStatus } from './types';
 
 function status(partial: Partial<TopologyNodeStatus>): TopologyNodeStatus {
   return {
