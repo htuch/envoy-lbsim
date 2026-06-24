@@ -270,6 +270,29 @@ describe('useSimStore', () => {
     expect(useSimStore.getState().windowAggregate?.totalRequests).toBe(999);
   });
 
+  it('load() resets windowLoading when a loadWindow is in-flight', async () => {
+    const api = new FakeApi();
+    useSimStore.getState().attach(api);
+    await useSimStore.getState().load();
+
+    // Start a loadWindow but leave it unresolved.
+    const staleLoad = useSimStore.getState().loadWindow({ fromMs: 0, toMs: 1000 });
+    expect(useSimStore.getState().windowLoading).toBe(true);
+
+    // Reload mid-flight: the loading flag must be cleared immediately so the
+    // dock spinner does not get stuck.
+    await useSimStore.getState().load();
+    expect(useSimStore.getState().windowLoading).toBe(false);
+
+    // Resolving the stale query must not commit its result nor re-raise the flag.
+    api.resolveNextWindow();
+    await staleLoad;
+    const s = useSimStore.getState();
+    expect(s.windowLoading).toBe(false);
+    expect(s.windowAggregate).toBeNull();
+    expect(s.windowSamples).toBeNull();
+  });
+
   // ---- loadInspection -------------------------------------------------------
 
   it('loadInspection populates inspection and toggles inspectionLoading', async () => {
@@ -300,13 +323,14 @@ describe('useSimStore', () => {
     const firstResult: LbInspection = { ...FAKE_INSPECTION, t: 100 };
     const secondResult: LbInspection = { ...FAKE_INSPECTION, t: 200 };
 
-    // Resolve second first (newer wins), then resolve first (older, must be dropped).
-    api.resolveNextInspection(firstResult); // resolves first request
-    api.resolveNextInspection(secondResult); // resolves second request
+    // Resolve in issuing order; the second-issued request wins because its
+    // captured seq matches the final inspectReqSeq, so the first-issued
+    // response is dropped even though it commits-or-drops first.
+    api.resolveNextInspection(firstResult); // resolves first request (dropped)
+    api.resolveNextInspection(secondResult); // resolves second request (committed)
     await Promise.all([first, second]);
 
-    // The inspection stored should be the second (newer req id), even though
-    // it arrived second in wall time.
+    // The inspection stored should be the second-issued request's result.
     expect(useSimStore.getState().inspection?.t).toBe(200);
   });
 

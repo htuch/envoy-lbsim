@@ -140,7 +140,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
     if (!api) throw new Error('store is not attached to a worker');
     const next = config ?? draft;
     const telemetry = await api.loadConfig(next);
-    // A fresh run invalidates any prior brushed window and all caches.
+    // A fresh run invalidates any prior brushed window and all caches. Any
+    // in-flight cold-path read is dropped on resolution (handle mismatch), so
+    // also clear the loading flags here or a mid-query reload would leave a
+    // dock spinner stuck forever.
     set({
       config: next,
       rings: ringsFromTelemetry(telemetry),
@@ -149,7 +152,9 @@ export const useSimStore = create<SimStore>((set, get) => ({
       handle: get().handle + 1,
       windowAggregate: null,
       windowSamples: null,
+      windowLoading: false,
       inspection: null,
+      inspectionLoading: false,
     });
     await get().syncStatus();
   },
