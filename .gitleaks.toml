@@ -1,0 +1,14 @@
+# gitleaks configuration. Extends the default rule set; adds an allowlist for a
+# vendored third-party header whose AVX-512 intrinsic identifiers ("data_key_lo",
+# "data_key_hi") trip the generic-api-key heuristic. These are xxHash algorithm
+# constants, not secrets. CI runs gitleaks-action with this config.
+title = "envoy-lb-sim gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored xxHash 0.8.3 (Envoy's pinned @xxhash); SIMD identifiers look like API keys to the generic heuristic but are algorithm internals."
+paths = [
+  '''packages/wasm-lb/vendor/xxhash\.h''',
+]
