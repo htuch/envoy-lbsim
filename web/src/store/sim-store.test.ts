@@ -337,6 +337,6 @@ describe('useSimStore', () => {
   it('inspectReqSeq counter lives in store state (not module globals)', () => {
     // Verify initial state contains the counter.
     const s = useSimStore.getState() as unknown as Record<string, unknown>;
-    expect(typeof s['inspectReqSeq']).toBe('number');
+    expect(typeof s.inspectReqSeq).toBe('number');
   });
 });

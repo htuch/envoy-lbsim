@@ -18,11 +18,21 @@ store. A headless Node CLI (`@elbsim/cli`) drives the whole simulator and runs a
 per-LB validation suite across all five real policies (see the Headless CLI
 section). The repo builds, type checks, lints, and tests green under the 95% gate.
 
-Remaining work: the web real-data integration (swap the synthetic worker for the
-real `SimController` so the analytical views are fed from real worker telemetry
-instead of the synthetic generators) and the optional Track A polish (zone-aware
-locality bucketing, slow start). The concrete next step is under "Next step"
-below.
+The web real-data integration is DONE: the app drives the real `SimController`
+worker (Comlink + SharedArrayBuffer), composing the real `LbModule` (await
+`loadLbModule()`) for all five policies, and the analytical views are fed from
+real worker telemetry (`frameToTopologySnapshot` for topology, `queryWindow` +
+`queryWindowLatencies` for cold-path analysis, `requestInspection` for the
+inspector) instead of the synthetic generators. The shell is the cockpit:
+timelines-dominant scrollable strip stack (envoy/backend/client gauges plus
+goodput and stage-split loss strips), a compact fleet-load heatmap as the
+in-cockpit topology with the full DAGRE graph on demand, and a side-by-side
+Inspector | Window dock. The production build emits `dist/assets/lb.wasm`
+alongside the hashed LB module. Verified by a Playwright cockpit CUJ against the
+real Maglev-Wasm worker.
+
+Remaining work: optional Track A polish (zone-aware locality bucketing, slow
+start). The concrete next step is under "Next step" below.
 
 ## Phase 0: scaffolding and interfaces (DONE)
 
@@ -140,8 +150,10 @@ is scoped to `src/**/*.test.*`, so it does not pick up the `e2e/*.spec.ts` files
 Small follow-ups (not blocking): cross-strip crosshair sync (hover reads the
 same x on every gauge) was deliberately deferred to avoid uPlot's select-band
 artifact; revisit with a custom cursor-sync that does not mirror the drag select.
-Mocks until integration: the synthetic worker (`web/src/worker/`) stands in
-behind `protocol`; replaced by Track B's kernel worker.
+Integration done: the app uses the real `SimController` worker
+(`web/src/worker/sim-worker.ts`); the synthetic worker (`mock-sim-worker.ts` /
+`runner.ts` / `synthetic.ts`) and the `web/src/synthetic/*` generators survive
+only as deterministic test fixtures.
 
 ### Track D: topology, cold path, inspector (DONE)
 Three prop-driven views under `web/src/components/{topology,analysis,inspector}`:
@@ -187,18 +199,12 @@ truth for which policies have a real Wasm LB (currently all five).
 ## Next step
 
 Track A's LB lift is done (all five policies, golden-tested, driving the real
-engine). The remaining front is the web real-data integration:
-- (a) compose the real Wasm `LbModule` into a kernel worker that hosts
-  `SimController` (await `loadLbModule()` in the worker, pass it as
-  `SimControllerOptions.lbModule`); sim-core and the engine already accept it and
-  the integration is covered by `engine.wasm.test.ts`.
-- (b) swap `web/`'s synthetic worker for that real `SimController` worker at
-  `web/src/worker/client.ts` (one URL).
-- (c) feed `AnalyticalViews` from real worker telemetry (gauge frames -> topology,
-  `queryWindow` -> analysis, `requestInspection` -> inspection) instead of the
-  `@/synthetic` generators.
-Optional Track A polish (not blocking): zone-aware locality bucketing and slow
-start (see Track A "Remaining").
+engine) and the web real-data integration is done (the cockpit drives the real
+`SimController` worker with the real `LbModule` for all policies; views are fed
+from real telemetry; `web/src/worker/sim-worker.ts` is the worker, wired at
+`web/src/worker/client.ts`). The remaining work is optional Track A polish (not
+blocking): zone-aware locality bucketing and slow start (see Track A
+"Remaining").
 
 ## Integration (after tracks)
 
